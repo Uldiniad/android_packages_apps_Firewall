@@ -20,10 +20,14 @@ final class FirewallMaps {
     /** The bits that block an app on a network, as a network's own bits say what it is. */
     static final int NETWORKS = BLOCK_WIFI | BLOCK_CELLULAR | BLOCK_VPN | BLOCK_OTHER
             | BLOCK_METERED | BLOCK_ROAMING;
+    /** Set for apps without ACCESS_LOCAL_NETWORK, to keep them off the LAN through VPNs. */
+    static final int NO_LAN = 1 << 6;
     /** Set for apps with choices for specific networks. */
     static final int NAMED_NETWORKS = 1 << 7;
     /** Set for apps with no network left that Connectivity can't keep to themselves. */
     static final int NO_LOOPBACK = 1 << 18;
+    static final int LAN_LOCAL = 1;
+    static final int LAN_DNS = 2;
 
     /** The scope of the rules for all of a user's apps; an app's scope is its uid. */
     static final int USER_SCOPE = 1 << 31;
@@ -60,6 +64,7 @@ final class FirewallMaps {
             "connect_deny",
             "dns_seen",
             "egress_drop_domain",
+            "egress_drop_lan",
             "egress_drop_port",
             "allowed_by_rule",
     };
@@ -73,10 +78,12 @@ final class FirewallMaps {
             "address for all apps",
             "port for all apps",
             "dns for all apps",
+            "lan",
     };
     /** The FW_REFUSED_* bits, the most specific reason first. */
     static final int[] REFUSAL_REASON_ORDER = {
             2, 3, 5, 6, 4, 7,
+            8,
             1, 0,
     };
     static final String[] REFUSAL_DIRECTIONS = {"connect", "out", "in"};
@@ -99,6 +106,7 @@ final class FirewallMaps {
     static native void nativeSetVpnRanges(int[] starts, int[] ends, int[] netIds);
     static native int nativeSetIp(int scope, byte[] address, int prefixLength, boolean allow,
             int limits);
+    static native int nativeSetLan(byte[] address, int prefixLength, int kind);
     static native int nativeSetDomain(int scope, String domain, long bits);
     static native int nativeSetLimits(int scope, long[] only, long[] except);
     static native int nativeSetPort(int scope, int protocol, int port, int prefixLength,

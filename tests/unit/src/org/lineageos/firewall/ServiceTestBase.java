@@ -161,7 +161,8 @@ public abstract class ServiceTestBase {
         }
     }
 
-    // Listing every user's apps needs these.
+    // Listing every user's apps needs these; adopting all of shell's would also grant this app
+    // ACCESS_LOCAL_NETWORK.
     @Rule
     public final AdoptShellPermissionsRule mPermissions = new AdoptShellPermissionsRule(
             InstrumentationRegistry.getInstrumentation().getUiAutomation(),

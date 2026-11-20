@@ -389,6 +389,24 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     }
 
     @Test
+    public void appsInstalledWhileTheirUserIsStoppedAreKeptOffTheLan() throws Exception {
+        int user = getDevice().createUser("fwstopped");
+        try {
+            // Installed while its user is stopped, which Android's package broadcasts skip.
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            assertTrue(getDevice().startUser(user, true));
+            shell("am wait-for-broadcast-idle");
+            int uid = Integer.parseInt(shell("pm list packages -U --user " + user + " " + PACKAGE)
+                    .replaceAll("(?s).*uid:([0-9]+).*", "$1"));
+            // The helper app doesn't request ACCESS_LOCAL_NETWORK, so it gets the NO_LAN bit.
+            assertTrue(shell("dumpsys firewall").matches("(?s).*UIDs in map: \\{.*\\b" + uid
+                    + "=64\\b.*"));
+        } finally {
+            shell("pm remove-user --wait " + user);
+        }
+    }
+
+    @Test
     public void rulesGoWithTheAppOnUninstall() throws Exception {
         // Uninstalling for one user keeps the APK for user 0, so it can come back without one.
         int user = getDevice().createUser("fwuninstall");

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Opens the app's local network permission, which Android manages. -->
+    <string name="local_network">Local network</string>
+    <string name="local_network_allowed">Allowed</string>
+    <string name="local_network_not_allowed">Not allowed</string>
+</resources>

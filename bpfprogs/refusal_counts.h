@@ -56,6 +56,7 @@ static __always_inline __u32 refusal_reasons(__u32 uid, __u32 rules, __u8 direct
                listed(&ip4_block, &ip6_block, FW_DOH_SCOPE, 0, info, path);
     if (dns && (rules & (FW_RULE_BLOCK_DNS | FW_SCOPE_DOMAINS))) reasons |= FW_REFUSED_DNS;
     if (dns && (uflags & FW_SCOPE_DOMAINS)) reasons |= FW_REFUSED_USER_DNS;
+    if ((rules & FW_RULE_NO_LAN) && lan_via_vpn(path->ifindex, info)) reasons |= FW_REFUSED_LAN;
     return reasons;
 }
 

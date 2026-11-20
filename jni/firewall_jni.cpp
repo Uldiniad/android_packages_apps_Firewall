@@ -44,6 +44,7 @@ jboolean nativeInit(JNIEnv*, jclass) {
     if (!initRefusalCounts()) return false;
     if (!initTargetRules()) return false;
     if (!initSpecificNetworks()) return false;
+    if (!initLocalNetwork()) return false;
     return gMaps.counters.ok();
 }
 
@@ -88,6 +89,7 @@ void nativeClearRules(JNIEnv*, jclass) {
     clear(gMaps.netTransport);
     clearTargetRules();
     clearSpecificNetworks();
+    clearLocalNetwork();
 }
 
 jint nativeSetUid(JNIEnv*, jclass, jint uid, jint rules) {
@@ -158,5 +160,6 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
     if (firewall::registerRefusalCounts(env, cls)) return JNI_ERR;
     if (firewall::registerTargetRules(env, cls)) return JNI_ERR;
     if (firewall::registerSpecificNetworks(env, cls)) return JNI_ERR;
+    if (firewall::registerLocalNetwork(env, cls)) return JNI_ERR;
     return JNI_VERSION_1_6;
 }

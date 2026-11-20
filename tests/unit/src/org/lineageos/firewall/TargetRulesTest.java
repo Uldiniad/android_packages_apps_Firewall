@@ -127,7 +127,7 @@ public class TargetRulesTest extends ServiceTestBase {
                 sandbox + ":443/17", FirewallMaps.PORT_BLOCK), mMaps.ports);
         int flags = mMaps.uids.get(UID);
         assertEquals(FirewallMaps.SCOPE_PORT_BLOCKS | FirewallMaps.SCOPE_IP_ALLOWS
-                | FirewallMaps.SCOPE_DOMAINS, flags);
+                | FirewallMaps.SCOPE_DOMAINS, flags & ~FirewallMaps.NO_LAN);
         assertEquals(flags, (int) mMaps.uids.get(sandbox));
         assertEquals(3, ownRule(service).ruleCount);
     }

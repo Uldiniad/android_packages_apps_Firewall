@@ -39,6 +39,7 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.function.BooleanSupplier
 import java.util.function.Supplier
+import java.util.regex.Pattern
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -419,6 +420,14 @@ class FirewallAppTest {
     }
 
     @Test
+    fun localNetworkRowOpensAndroidsPermissionPage() =
+        onPage("AppRules/$testPackage/$userId") {
+            scrollTo(text("local_network")).click()
+            val page = Until.hasObject(By.pkg(PERMISSION_CONTROLLER).depth(0))
+            assertTrue(device.wait(page, TIMEOUT))
+        }
+
+    @Test
     fun dataUsageRowOpensAndroidsDataPage() =
         onPage("AppRules/$testPackage/$userId") {
             scrollTo(text("data_usage")).click()
@@ -784,6 +793,7 @@ class FirewallAppTest {
         const val SETTINGS = "com.android.settings"
         const val SYSTEMUI_BATTERY = "com.android.systemui:id/battery_meter_composable_view"
         const val NO_INTERNET = "org.lineageos.firewall.hostside.nointernet"
+        val PERMISSION_CONTROLLER: Pattern = Pattern.compile(".*permissioncontroller")
         // Generous: the first launch on a freshly flashed phone runs uncompiled code.
         const val TIMEOUT = 20_000L
         const val DOMAIN = "example.test"

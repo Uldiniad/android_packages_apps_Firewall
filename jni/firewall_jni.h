@@ -78,5 +78,8 @@ int registerTargetRules(JNIEnv* env, jclass cls);
 bool initSpecificNetworks();
 void clearSpecificNetworks();
 int registerSpecificNetworks(JNIEnv* env, jclass cls);
+bool initLocalNetwork();
+void clearLocalNetwork();
+int registerLocalNetwork(JNIEnv* env, jclass cls);
 
 }  // namespace firewall

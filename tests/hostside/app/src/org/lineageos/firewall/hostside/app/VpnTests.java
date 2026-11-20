@@ -13,13 +13,20 @@ import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
 import android.content.Intent;
+import android.net.ConnectivityManager;
 import android.net.InetAddresses;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.VpnService;
 
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.net.Inet4Address;
 import java.net.InetAddress;
 
 /** The firewall's rules for an app under a VPN, using this app's own VPN. */
@@ -156,5 +163,34 @@ public class VpnTests {
         startVpn(true, null);
         Firewall.setRules("vpn");
         assertFalse("Reported blocked", Firewall.waitForBlocked(true, 3000));
+    }
+
+    @Test
+    public void lanThroughTheVpnIsDroppedExceptDns() throws Exception {
+        // This app lacks ACCESS_LOCAL_NETWORK, so AOSP keeps it off the LAN; so must the VPN.
+        ConnectivityManager cm = mContext.getSystemService(ConnectivityManager.class);
+        InetAddress lanHost = null;
+        InetAddress lanDns = null;
+        for (Network network : cm.getAllNetworks()) {
+            NetworkCapabilities nc = cm.getNetworkCapabilities(network);
+            if (nc == null || !nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue;
+            LinkProperties lp = cm.getLinkProperties(network);
+            for (LinkAddress la : lp.getLinkAddresses()) {
+                if (!(la.getAddress() instanceof Inet4Address)
+                        || !la.getAddress().isSiteLocalAddress()) {
+                    continue;
+                }
+                byte[] host = la.getAddress().getAddress();
+                host[3] = (byte) (host[3] == 1 ? 2 : 1);
+                lanHost = InetAddress.getByAddress(host);
+                for (InetAddress dns : lp.getDnsServers()) {
+                    if (dns instanceof Inet4Address && dns.isSiteLocalAddress()) lanDns = dns;
+                }
+            }
+        }
+        Assume.assumeTrue("Needs a Wi-Fi network with a private IPv4 subnet", lanHost != null);
+        startVpn(false, null);
+        assertFalse(Firewall.udpSends(lanHost, 9));
+        if (lanDns != null) assertTrue(Firewall.udpSends(lanDns, 53));
     }
 }

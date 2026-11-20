@@ -5,6 +5,8 @@
 
 package org.lineageos.firewall;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.os.FileObserver;
 import android.os.UserHandle;
 import android.util.Log;
@@ -89,6 +91,18 @@ final class LineageImport extends Feature {
             for (String packageName : packages) {
                 Pair<String, Integer> app = Pair.create(packageName, user.getIdentifier());
                 if (!mImportedApps.add(app) || !apply) continue;
+                // Lineage blocked apps installed without INTERNET on its own, so those start
+                // blocked as new installs, and their user hears once an update brings INTERNET.
+                // Without new-app blocking, they keep their block.
+                NewAppBlocking blocking = mService.feature(NewAppBlocking.class);
+                if (blocking != null && mService.context().checkPermission(
+                        Manifest.permission.INTERNET, -1, policy.getKey())
+                                != PackageManager.PERMISSION_GRANTED
+                        && mService.userInstalled(app)) {
+                    imported |= blocking.applyNewInstallDefaultLocked(packageName,
+                            policy.getKey());
+                    continue;
+                }
                 mService.store().apps.putIfAbsent(app, policy.getValue());
                 imported = true;
             }

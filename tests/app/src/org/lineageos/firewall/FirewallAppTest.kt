@@ -62,6 +62,7 @@ class FirewallAppTest {
         IFirewall.Stub.asInterface(checkNotNull(ServiceManager.getService("firewall")))
     private val testPackage = context.packageName
     private val userId = context.userId
+    private val newAppsBlocked = firewall.areNewInstallsBlocked(userId)
     private val appResources = context.packageManager.getResourcesForApplication(APP)
 
     /** AOSP's accessibility checks, run on every UiAutomator action and after each test. */
@@ -85,6 +86,7 @@ class FirewallAppTest {
         firewall.setAppRules(testPackage, userId, 0)
         firewall.setPause(testPackage, userId, false, 0)
         firewall.setSchedule(testPackage, userId, 0, 0, 0)
+        firewall.setNewInstallsBlocked(userId, newAppsBlocked)
     }
 
     /** The app's own text, in the device's language. */
@@ -148,7 +150,7 @@ class FirewallAppTest {
     private fun openWorkTab() =
         openTab(DevicePolicyResources.Strings.Settings.WORK_CATEGORY_HEADER, "category_work")
 
-    /** Shows a profile's tab by its title, as SPA names it, once the pager settles. */
+    /** Shows a profile's tab by its title, as SPA names it, once the page beside it is gone. */
     private fun openTab(header: String, fallback: String) {
         val title =
             context
@@ -156,7 +158,7 @@ class FirewallAppTest {
                 .resources
                 .getString(header) { text(fallback) } ?: text(fallback)
         find(title).click()
-        device.waitForIdle()
+        waitUntil { device.findObjects(By.text(text("new_apps_title"))).size == 1 }
     }
 
     /** Calls the service about another user with shell's permission, as CTS profile tests do. */
@@ -214,6 +216,24 @@ class FirewallAppTest {
         assumeFalse("The firewall is running", firewall.isRunning)
         onPage("AppList") { find(text("firewall_not_running")) }
     }
+
+    @Test
+    fun homePageSwitchBlocksNewApps() {
+        firewall.setNewInstallsBlocked(userId, false)
+        onPage("AppList") {
+            find(text("new_apps_title")).click()
+            waitUntil { firewall.areNewInstallsBlocked(userId) }
+        }
+    }
+
+    @Test
+    fun notificationsRowOpensTheBlockedAppsChannel() =
+        onPage("AppList") {
+            find(text("notifications_title")).click()
+            assertTrue(device.wait(Until.hasObject(By.pkg(SETTINGS).depth(0)), TIMEOUT))
+            // The channel's page shows its description; its name is the page's title.
+            find(text("channel_blocked_apps_description"))
+        }
 
     @Test
     fun networkAccessSwitchBlocksTheAppEverywhere() =
@@ -276,8 +296,20 @@ class FirewallAppTest {
         }
 
     @Test
+    fun appPageExplainsANewAppsBlock() {
+        waitUntil {
+            firewall.getAppRulesForUser(userId).any {
+                it.packageName == NO_INTERNET && it.isDefault
+            }
+        }
+        onPage("AppRules/$NO_INTERNET/$userId") {
+            scrollTo(By.textContains(text("app_rules_footer_new")), "new app footer")
+        }
+    }
+
+    @Test
     fun appsWithoutInternetShowTheyCantUseTheNetwork() {
-        val saved = firewall.getAppRules(NO_INTERNET, userId)
+        val saved = firewall.getBackupPayload(userId)
         try {
             firewall.setAppRules(NO_INTERNET, userId, 0)
             onPage("AppList") {
@@ -286,7 +318,7 @@ class FirewallAppTest {
                 find(text("rules_no_internet"))
             }
         } finally {
-            firewall.setAppRules(NO_INTERNET, userId, saved)
+            firewall.applyRestore(userId, saved)
         }
     }
 
@@ -319,6 +351,35 @@ class FirewallAppTest {
     }
 
     @Test
+    fun aWorkProfileGetsATabWithItsOwnSettings() = withWorkProfile { profile ->
+        val blocked = acrossUsers { firewall.areNewInstallsBlocked(profile) }
+        onPage("AppList") {
+            openWorkTab()
+            find(text("new_apps_title")).click()
+            waitUntil { acrossUsers { firewall.areNewInstallsBlocked(profile) } != blocked }
+            assertEquals(newAppsBlocked, firewall.areNewInstallsBlocked(userId))
+            // The profile's notifications are its own copy's, set in its own Settings.
+            find(text("notifications_title")).click()
+            assertTrue(device.wait(Until.hasObject(By.pkg(SETTINGS).depth(0)), TIMEOUT))
+        }
+    }
+
+    @Test
+    fun privateSpaceGetsATabWithItsOwnSettings() =
+        withProfile("--user-type android.os.usertype.profile.PRIVATE") { profile ->
+            val blocked = acrossUsers { firewall.areNewInstallsBlocked(profile) }
+            onPage("AppList") {
+                openTab(
+                    DevicePolicyResources.Strings.Settings.PRIVATE_CATEGORY_HEADER,
+                    "category_private",
+                )
+                find(text("new_apps_title")).click()
+                waitUntil { acrossUsers { firewall.areNewInstallsBlocked(profile) } != blocked }
+                assertEquals(newAppsBlocked, firewall.areNewInstallsBlocked(userId))
+            }
+        }
+
+    @Test
     fun workTabAppsGetTheirRulesInTheProfile() = withWorkProfile { profile ->
         runShellCommand("pm install-existing --user $profile $testPackage")
         onPage("AppList") {
@@ -331,6 +392,74 @@ class FirewallAppTest {
             }
             assertEquals(0, firewall.getAppRules(testPackage, userId))
         }
+    }
+
+    @Test
+    fun tappingABlockedAppsNotificationOpensItsPage() {
+        withNotifications { listener ->
+            firewall.setAppRules(testPackage, userId, IFirewall.BLOCK_ALL)
+            reportBlocked()
+            val posted = next(NotificationListener.posted)
+            try {
+                // Tapped in the shade as a user would; this test app is named by its package.
+                device.openNotification()
+                find(text("blocked_app_title", testPackage)).click()
+                assertTrue(device.wait(Until.hasObject(By.pkg(APP).depth(0)), TIMEOUT))
+                find(text("app_rules_title"))
+            } finally {
+                listener.cancelNotification(posted.key)
+            }
+        }
+    }
+
+    @Test
+    fun allowingFromTheNotificationAllowsTheApp() {
+        assertEquals(0, decideFromNotification(IFirewall.BLOCK_ALL, "blocked_app_allow"))
+    }
+
+    @Test
+    fun keepingBlockedFromTheNotificationBlocksTheApp() {
+        assertEquals(IFirewall.BLOCK_ALL, decideFromNotification(0, "blocked_app_keep"))
+    }
+
+    /** Has the app report a blocked app, takes the notification's action, returns the rules. */
+    private fun decideFromNotification(rules: Int, button: String): Int = withNotifications {
+        firewall.setAppRules(testPackage, userId, rules)
+        reportBlocked()
+        val posted = next(NotificationListener.posted)
+        posted.notification.actions
+            .first { it.title.toString() == text(button) }
+            .actionIntent
+            .send()
+        next(NotificationListener.removed)
+        firewall.getAppRules(testPackage, userId)
+    }
+
+    /** Runs the steps with this test's notification listener connected. */
+    private fun <T> withNotifications(steps: (NotificationListener) -> T): T {
+        val listener = "$testPackage/${NotificationListener::class.java.name}"
+        // Events of earlier tests would be taken for this one's.
+        NotificationListener.connected.clear()
+        NotificationListener.posted.clear()
+        NotificationListener.removed.clear()
+        runShellCommand("cmd notification allow_listener $listener")
+        try {
+            return steps(
+                checkNotNull(NotificationListener.connected.poll(TIMEOUT, TimeUnit.MILLISECONDS))
+            )
+        } finally {
+            runShellCommand("cmd notification disallow_listener $listener")
+        }
+    }
+
+    /** Tells the firewall app this test app is blocked until decided, as the service does. */
+    private fun reportBlocked() {
+        context.sendBroadcast(
+            Intent(ACTION_APP_BLOCKED)
+                .setPackage(APP)
+                .putExtra(Intent.EXTRA_PACKAGE_NAME, testPackage),
+            PERMISSION,
+        )
     }
 
     /** Runs the steps with a new work profile of this user, removed after. */
@@ -377,6 +506,8 @@ class FirewallAppTest {
         const val ADDRESS = "198.51.100.0/24"
         const val EDIT_TEXT = "android.widget.EditText"
         const val TEXT_VIEW = "android.widget.TextView"
+        const val ACTION_APP_BLOCKED = "org.lineageos.firewall.action.APP_BLOCKED"
+        const val PERMISSION = "org.lineageos.firewall.permission.MANAGE_FIREWALL"
         val NETWORK_SWITCHES =
             listOf(
                 "network_wifi" to IFirewall.BLOCK_WIFI,

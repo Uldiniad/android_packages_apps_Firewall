@@ -5,10 +5,12 @@
 
 package org.lineageos.firewall;
 
-/** An app's rules for one user. */
+/** An app's rules for one user, and whether they are a default the user hasn't decided on. */
 parcelable AppRule {
     String packageName;
     int rules;
+    boolean isDefault;
+    boolean notified;
     /** Whether a pause blocks the app or allows it, and until when; 0 for no pause. */
     boolean pauseBlocks;
     long pauseUntil;

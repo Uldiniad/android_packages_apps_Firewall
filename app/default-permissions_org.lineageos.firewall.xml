@@ -4,7 +4,7 @@
      SPDX-License-Identifier: Apache-2.0
 -->
 <exceptions>
-    <!-- For its notification that the firewall isn't running. -->
+    <!-- For its notifications: a new app was blocked, or the firewall isn't running. -->
     <exception package="org.lineageos.firewall">
         <permission name="android.permission.POST_NOTIFICATIONS" fixed="false" />
     </exception>

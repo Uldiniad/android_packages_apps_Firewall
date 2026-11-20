@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Switch for one user or profile: whether the apps they install can use the network right away. -->
+    <string name="new_apps_title">Allow network access for new apps</string>
+    <string name="new_apps_summary">When off, new apps are blocked until you allow them</string>
+    <!-- Opens Android's settings for the firewall's notifications. -->
+    <string name="notifications_title">Notifications</string>
+    <string name="notifications_summary">Get notified when an app is blocked until you allow it</string>
+    <!-- Summary of a new app, or one installed without network access, the user hasn't allowed or blocked yet. -->
+    <string name="rules_blocked_new">Blocked until you allow it</string>
+    <string name="app_rules_footer_new">This app started blocked because it\'s new or was installed without network access. Allow it if you trust it.</string>
+
+    <!-- Notification channel for apps the firewall blocked until the user allows them. -->
+    <string name="channel_blocked_apps">Blocked apps</string>
+    <string name="channel_blocked_apps_description">When an app is blocked until you allow it</string>
+    <string name="blocked_app_title"><xliff:g id="app" example="Maps">%1$s</xliff:g> is blocked</string>
+    <string name="blocked_app_text">It can\'t use the network until you allow it.</string>
+    <string name="blocked_app_allow">Allow</string>
+    <string name="blocked_app_keep">Keep blocked</string>
+</resources>

@@ -12,6 +12,7 @@ class FirewallApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         SpaEnvironmentFactory.reset(FirewallSpaEnvironment(this))
+        BlockedAppNotification.createChannel(this)
         NotRunningNotification.createChannel(this)
     }
 }

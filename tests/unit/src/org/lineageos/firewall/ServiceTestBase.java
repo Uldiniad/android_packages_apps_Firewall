@@ -37,6 +37,7 @@ import java.util.function.Predicate;
 /** Runs the service against this test app's own package, with fake maps and Connectivity. */
 public abstract class ServiceTestBase {
     static final String PACKAGE = "org.lineageos.firewall.tests";
+    static final String NO_INTERNET_PACKAGE = "org.lineageos.firewall.hostside.nointernet";
     static final int UID = Process.myUid();
 
     final ConnectivityManager mConnectivity = mock(ConnectivityManager.class);

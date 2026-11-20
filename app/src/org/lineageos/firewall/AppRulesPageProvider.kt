@@ -76,6 +76,7 @@ private fun AppRulesPage(packageName: String, userId: Int) {
     val rules = appRules?.let { rule?.rules ?: 0 }
     val change: (Int) -> Unit = { newRules ->
         scope.launch { Firewall.call { setAppRules(packageName, userId, newRules) } }
+        BlockedAppNotification.cancel(context, packageName)
     }
     AppInfoPage(
         title = stringResource(R.string.app_rules_title),
@@ -146,6 +147,7 @@ private fun AppRulesFooter(packageName: String, userId: Int, rule: AppRule?) {
             value = withContext(Dispatchers.IO) { sharedAppLabels(context, packageName, userId) }
         }
     val paragraphs = buildList {
+        context.newAppFooter(rule)?.let { add(it) }
         if (shared.isNotEmpty()) {
             add(context.getString(R.string.app_rules_footer_shared, context.formatList(shared)))
         }

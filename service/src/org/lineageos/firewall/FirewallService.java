@@ -10,10 +10,13 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.ApplicationInfoFlags;
 import android.content.pm.PackageManager.PackageInfoFlags;
 import android.net.ConnectivityManager;
 import android.os.Binder;
+import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -98,6 +101,7 @@ public final class FirewallService extends SystemService {
                 new BackupRestore(this),
                 new Schedules(this),
                 new LineageImport(this, storeDir),
+                new NewAppBlocking(this),
                 new RefusalCounts(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
@@ -213,6 +217,23 @@ public final class FirewallService extends SystemService {
             }
 
             @Override
+            public void onPackageUpdateStartedWithExtras(String packageName, int uid,
+                    Bundle extras) {
+                if (extras == null || !extras.getBoolean(Intent.EXTRA_ARCHIVAL)) return;
+                Pair<String, Integer> app = Pair.create(packageName, UserHandle.getUserId(uid));
+                synchronized (FirewallService.this) {
+                    boolean changed = false;
+                    for (Feature feature : mFeatures) changed |= feature.onArchivingLocked(app);
+                    if (changed) saveAsync();
+                }
+            }
+
+            @Override
+            public void onPackageUpdateFinished(String packageName, int uid) {
+                onPackageUpdated(packageName, uid);
+            }
+
+            @Override
             public void onUidRemoved(int uid) {
                 // Dropped like NPMS drops the uid's policy; not sent when data is kept.
                 int userId = UserHandle.getUserId(uid);
@@ -274,6 +295,16 @@ public final class FirewallService extends SystemService {
         return changed;
     }
 
+    boolean userInstalled(Pair<String, Integer> app) {
+        try {
+            return (mContext.createContextAsUser(UserHandle.of(app.second), 0).getPackageManager()
+                    .getApplicationInfo(app.first, ApplicationInfoFlags.of(PACKAGE_FLAGS)).flags
+                    & ApplicationInfo.FLAG_SYSTEM) == 0;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+    }
+
     /** The app's uid on the user, while any user has the app or its data; else -1. */
     int knownUid(Pair<String, Integer> app) {
         return packageUid(app, PackageManager.MATCH_UNINSTALLED_PACKAGES);
@@ -292,6 +323,19 @@ public final class FirewallService extends SystemService {
         boolean changed = mStore.apps.keySet().removeIf(app -> app.second == userId);
         for (Feature feature : mFeatures) changed |= feature.forgetUserLocked(userId);
         return changed;
+    }
+
+    /**
+     * An update adding INTERNET to a new app that started blocked. Android tells permission
+     * listeners only about runtime permissions, so this comes from the package callback.
+     */
+    void onPackageUpdated(String packageName, int uid) {
+        Pair<String, Integer> app = Pair.create(packageName, UserHandle.getUserId(uid));
+        synchronized (this) {
+            boolean changed = false;
+            for (Feature feature : mFeatures) changed |= feature.onPackageUpdatedLocked(app, uid);
+            if (changed) saveAsync();
+        }
     }
 
     void syncAppsLocked() {
@@ -446,6 +490,7 @@ public final class FirewallService extends SystemService {
         synchronized (this) {
             for (Pair<String, Integer> app : sharingUidLocked(packageName, userId)) {
                 mStore.apps.put(app, rules);
+                for (Feature feature : mFeatures) feature.onDecisionLocked(app);
             }
             if (mMapsReady) syncAppsLocked();
         }
@@ -510,6 +555,7 @@ public final class FirewallService extends SystemService {
                 StringBuilder line = new StringBuilder("  " + app.getKey().first + " user "
                         + app.getKey().second + " rules "
                         + FirewallShellCommand.rulesToString(app.getValue()));
+                for (Feature feature : mFeatures) feature.describeAppLocked(app.getKey(), line);
                 pw.println(line);
             }
             pw.println("UIDs in map: " + mUidRules);
@@ -616,9 +662,21 @@ public final class FirewallService extends SystemService {
         }
 
         @Override
+        public void setNewInstallsBlocked(int userId, boolean blocked) {
+            enforceUser(userId);
+            feature(NewAppBlocking.class).setNewInstallsBlockedInternal(userId, blocked);
+        }
+
+        @Override
         public boolean isRunning() {
             enforcePermission();
             return isRunningInternal();
+        }
+
+        @Override
+        public boolean areNewInstallsBlocked(int userId) {
+            enforceUser(userId);
+            return feature(NewAppBlocking.class).areNewInstallsBlockedInternal(userId);
         }
 
         @Override

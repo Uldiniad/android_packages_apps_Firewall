@@ -68,6 +68,10 @@ final class FirewallBackup {
         serializer.startDocument(null, true);
         serializer.startTag(null, "firewall-backup");
         serializer.attribute(null, "version", Integer.toString(VERSION));
+        for (Feature feature : features) {
+            Object part = user.get(feature);
+            if (part != null) feature.writeBackupAttributes(part, true, serializer);
+        }
         for (App app : apps) writeApp(serializer, "app", app, null, features);
         for (Feature feature : features) {
             Object part = user.get(feature);
@@ -88,6 +92,11 @@ final class FirewallBackup {
             while ((type = parser.next()) != XmlPullParser.END_DOCUMENT) {
                 if (type != XmlPullParser.START_TAG) continue;
                 switch (parser.getName()) {
+                    case "firewall-backup" -> {
+                        for (Feature feature : features) {
+                            backup.user.put(feature, feature.readBackupAttributes(parser, true));
+                        }
+                    }
                     case "app" -> backup.apps.add(readApp(parser, features));
                     default -> {
                         for (Feature feature : features) {
@@ -109,6 +118,10 @@ final class FirewallBackup {
         if (user != null) serializer.attribute(null, "user", user.toString());
         serializer.attribute(null, "package", app.packageName());
         if (app.rules() >= 0) serializer.attribute(null, "rules", Integer.toString(app.rules()));
+        for (Feature feature : features) {
+            Object part = app.parts().get(feature);
+            if (part != null) feature.writeBackupAttributes(part, false, serializer);
+        }
         if (!app.certs().isEmpty()) {
             serializer.attribute(null, "certs", String.join(",", app.certs()));
         }
@@ -126,6 +139,9 @@ final class FirewallBackup {
         String rules = parser.getAttributeValue(null, "rules");
         String packageName = parser.getAttributeValue(null, "package").trim();
         Parts parts = new Parts();
+        for (Feature feature : features) {
+            parts.put(feature, feature.readBackupAttributes(parser, false));
+        }
         int depth = parser.getDepth();
         int type;
         while ((type = parser.next()) != XmlPullParser.END_DOCUMENT

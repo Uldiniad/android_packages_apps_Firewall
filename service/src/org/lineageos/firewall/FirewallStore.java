@@ -61,6 +61,7 @@ final class FirewallStore {
                                 parser.getAttributeValue(null, "package"),
                                 Integer.parseInt(parser.getAttributeValue(null, "user")));
                         apps.put(app, Integer.parseInt(parser.getAttributeValue(null, "rules")));
+                        for (Feature feature : mFeatures) feature.readAppAttributes(app, parser);
                     }
                     default -> {
                         for (Feature feature : mFeatures) {
@@ -82,6 +83,7 @@ final class FirewallStore {
             out = mFile.startWrite();
             XmlSerializer serializer = Xml.newSerializer();
             serializer.setOutput(out, StandardCharsets.UTF_8.name());
+            for (Feature feature : mFeatures) feature.onSaveLocked();
             serializer.startDocument(null, true);
             serializer.startTag(null, "firewall");
             serializer.attribute(null, "version", Integer.toString(VERSION));
@@ -90,6 +92,9 @@ final class FirewallStore {
                 serializer.attribute(null, "package", app.getKey().first);
                 serializer.attribute(null, "user", Integer.toString(app.getKey().second));
                 serializer.attribute(null, "rules", Integer.toString(app.getValue()));
+                for (Feature feature : mFeatures) {
+                    feature.writeAppAttributes(app.getKey(), serializer);
+                }
                 serializer.endTag(null, "app");
             }
             for (Feature feature : mFeatures) feature.writeStore(serializer);

@@ -9,6 +9,11 @@
     <!-- if_nametoindex() needs a socket. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- The app without INTERNET installed beside this one. -->
+    <queries>
+        <package android:name="org.lineageos.firewall.hostside.nointernet" />
+    </queries>
+
     <application />
 
     <instrumentation

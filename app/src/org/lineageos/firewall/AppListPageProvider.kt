@@ -21,6 +21,7 @@ import com.android.settingslib.spa.framework.common.SettingsPageProvider
 import com.android.settingslib.spa.widget.preference.StatusBannerLevel
 import com.android.settingslib.spa.widget.preference.StatusBannerPreference
 import com.android.settingslib.spa.widget.preference.StatusBannerPreferenceModel
+import com.android.settingslib.spa.widget.ui.Category
 import com.android.settingslib.spaprivileged.model.app.AppListModel
 import com.android.settingslib.spaprivileged.model.app.AppRecord
 import com.android.settingslib.spaprivileged.template.app.AppList
@@ -108,5 +109,8 @@ private fun UserSettings(userId: Int) {
                 override val iconLevel = StatusBannerLevel.HIGH
             }
         )
+    }
+    Category {
+        NewAppsPreferences(userId)
     }
 }

@@ -68,6 +68,28 @@
         </activity-alias>
 
         <receiver
+            android:name=".BlockedAppReceiver"
+            android:exported="true"
+            android:permission="org.lineageos.firewall.permission.MANAGE_FIREWALL">
+            <intent-filter>
+                <action android:name="org.lineageos.firewall.action.APP_BLOCKED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".BlockedAppActionReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".PackageReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PACKAGE_FULLY_REMOVED" />
+                <data android:scheme="package" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".BootCompletedReceiver"
             android:exported="true">
             <intent-filter>

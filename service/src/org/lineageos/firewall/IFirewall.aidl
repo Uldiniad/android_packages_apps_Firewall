@@ -35,6 +35,8 @@ interface IFirewall {
     /** Whether the firewall's programs are loaded and on; while not, apps aren't firewalled. */
     boolean isRunning();
 
+    void setNewInstallsBlocked(int userId, boolean blocked);
+    boolean areNewInstallsBlocked(int userId);
     byte[] getBackupPayload(int userId);
     void applyRestore(int userId, in byte[] payload);
 }

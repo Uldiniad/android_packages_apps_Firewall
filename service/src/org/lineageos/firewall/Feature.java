@@ -40,6 +40,22 @@ abstract class Feature {
 
     void writeStore(XmlSerializer serializer) throws IOException {}
 
+    /** Reads the feature's attributes of an app's tag in the store. */
+    void readAppAttributes(Pair<String, Integer> app, XmlPullParser parser) {}
+
+    /** Writes the feature's attributes of an app's tag in the store. */
+    void writeAppAttributes(Pair<String, Integer> app, XmlSerializer serializer)
+            throws IOException {}
+
+    /** Before the store is written, with the service's lock held. */
+    void onSaveLocked() {}
+
+    /** The user set the app's switches, which is their decision on it. */
+    void onDecisionLocked(Pair<String, Integer> app) {}
+
+    /** Adds what the feature knows of the app to its line in the dump. */
+    void describeAppLocked(Pair<String, Integer> app, StringBuilder line) {}
+
     /** After the store loads: drops what belongs to users and apps that are gone. */
     void onLoadedLocked(Set<Integer> users) {}
 
@@ -57,6 +73,16 @@ abstract class Feature {
 
     /** An app was installed; true if the store changed. */
     boolean onPackageAddedLocked(Pair<String, Integer> app, int uid) {
+        return false;
+    }
+
+    /** An update of the app finished; true if the store changed. */
+    boolean onPackageUpdatedLocked(Pair<String, Integer> app, int uid) {
+        return false;
+    }
+
+    /** The app is being archived; true if the store changed. */
+    boolean onArchivingLocked(Pair<String, Integer> app) {
         return false;
     }
 
@@ -97,9 +123,18 @@ abstract class Feature {
         return null;
     }
 
+    /** Writes the feature's attributes of a backed-up user, or app, from its part. */
+    void writeBackupAttributes(Object part, boolean user, XmlSerializer serializer)
+            throws IOException {}
+
     /** Writes the feature's tags inside a backed-up user, or app, from its part. */
     void writeBackupTags(Object part, boolean user, XmlSerializer serializer)
             throws IOException {}
+
+    /** Reads the feature's attributes of a backed-up user, or app: its part, or null. */
+    Object readBackupAttributes(XmlPullParser parser, boolean user) {
+        return null;
+    }
 
     /**
      * Reads a tag inside a backed-up user, or app, into the feature's part, as payloads are

@@ -59,9 +59,12 @@ object NotRunningNotification {
         context.getSystemService(NotificationManager::class.java).notify(TAG, ID, notification)
     }
 
-    /** Whether the user set anything for the firewall to apply. */
+    /**
+     * Whether the user set anything for the firewall to apply, beyond new apps lacking INTERNET.
+     */
     private fun hasRules(service: IFirewall, userId: Int) =
-        service.getAppRulesForUser(userId).any { it.rules != 0 }
+        service.areNewInstallsBlocked(userId) ||
+            service.getAppRulesForUser(userId).any { it.rules != 0 && !it.isDefault }
 }
 
 /** Checks once each user unlocks after a boot. */

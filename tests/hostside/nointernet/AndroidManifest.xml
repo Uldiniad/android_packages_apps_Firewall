@@ -3,7 +3,7 @@
      SPDX-FileCopyrightText: The LineageOS Project
      SPDX-License-Identifier: Apache-2.0
 -->
-<!-- An app without INTERNET. -->
+<!-- An app without INTERNET, which the firewall starts blocked when it's newly installed. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.lineageos.firewall.hostside.nointernet">
 

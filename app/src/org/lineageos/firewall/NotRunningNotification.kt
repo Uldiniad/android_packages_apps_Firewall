@@ -66,7 +66,10 @@ object NotRunningNotification {
         service.areNewInstallsBlocked(userId) ||
             service.getRules(userId, null).isNotEmpty() ||
             service.getAppRulesForUser(userId).any {
-                (it.rules != 0 && !it.isDefault) || it.ruleCount > 0
+                (it.rules != 0 && !it.isDefault) ||
+                    it.ruleCount > 0 ||
+                    !it.allowedNetworks.isNullOrEmpty() ||
+                    !it.blockedNetworks.isNullOrEmpty()
             }
 }
 

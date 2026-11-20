@@ -18,6 +18,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import com.android.settingslib.spa.framework.common.SettingsPageProvider
@@ -197,18 +198,25 @@ private fun AddRulesPage(userId: Int, packageName: String?, kind: RuleKind?) {
             limit = it
             invalid = false
         }
-        if (limit != ALL_NETWORKS) ChosenNetworks(networks) { networks = it }
+        if (limit != ALL_NETWORKS) ChosenNetworks(userId, networks) { networks = it }
     }
 }
 
-/** The networks rules are limited to: each kind. */
+/** The networks rules are limited to: each kind, then the user's specific networks. */
 @Composable
-private fun ChosenNetworks(chosen: List<String>, onChange: (List<String>) -> Unit) {
+private fun ChosenNetworks(userId: Int, chosen: List<String>, onChange: (List<String>) -> Unit) {
     val context = LocalContext.current
+    val known by remember(userId) { Firewall.networks(userId) }.collectAsStateWithLifecycle(null)
     val options =
-        remember {
+        remember(known) {
             val kinds = Network.entries.map { it.key to context.getString(it.title) }
-            kinds.map { (key, label) ->
+            val specific =
+                known.orEmpty().mapNotNull { network ->
+                    SpecificKind.of(network.key)?.let {
+                        network.key to context.getString(it.label, context.networkName(network))
+                    }
+                }
+            (kinds + specific).map { (key, label) ->
                 key to SettingsDropdownCheckOption(label, selected = mutableStateOf(key in chosen))
             }
         }

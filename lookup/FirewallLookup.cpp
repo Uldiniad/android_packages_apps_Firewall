@@ -27,6 +27,7 @@ using bpf::BpfMapRO;
 
 struct LookupMaps {
     BpfMapRO<uint32_t, uint32_t> uidRules;
+    BpfMapRO<uint32_t, fw_named_networks> uidNetworks;
     BpfMapRO<uint32_t, uint32_t> userFlags;
     BpfMapRO<uint32_t, uint64_t> netTransport;
     BpfMapRO<uint32_t, fw_limits> scopeLimits;
@@ -40,6 +41,7 @@ LookupMaps& lookupMaps() {
     static LookupMaps* const maps = [] {
         auto* m = new LookupMaps();
         m->ready = m->uidRules.init(FW_MAP_PATH("uid_rules")).ok() &&
+                   m->uidNetworks.init(FW_MAP_PATH("uid_networks")).ok() &&
                    m->userFlags.init(FW_MAP_PATH("user_flags")).ok() &&
                    m->netTransport.init(FW_MAP_PATH("net_transport")).ok() &&
                    m->scopeLimits.init(FW_MAP_PATH("scope_limits")).ok() &&
@@ -77,6 +79,12 @@ uint32_t limitsOn(const LookupMaps& maps, uint32_t scope, uint32_t flags, uint64
     return fw_limits_on(limits.ok() ? &*limits : nullptr, net);
 }
 
+bool networkBlocked(const LookupMaps& maps, uint32_t uid, uint32_t rules, uint64_t net) {
+    if (!(rules & FW_RULE_NAMED_NETWORKS)) return fw_network_blocked(rules, nullptr, net);
+    auto named = maps.uidNetworks.readValue(uid);
+    return fw_network_blocked(rules, named.ok() ? &*named : nullptr, net);
+}
+
 bool isAppUid(uid_t uid) {
     return uid % AID_USER_OFFSET >= AID_APP_START;
 }
@@ -99,7 +107,7 @@ bool allowsLookup(uid_t uid, unsigned netId, const char* name) {
                 : 0;
         if (app & FW_DOMAIN_ALLOW) return true;
         if (*rules & (FW_RULE_BLOCK_ALL | FW_RULE_BLOCK_DNS)) return false;
-        if (fw_network_blocked(*rules, net)) return false;
+        if (networkBlocked(maps, uid, *rules, net)) return false;
         if (app & FW_DOMAIN_BLOCK) return false;
         if ((*rules & FW_SCOPE_DOMAINS) && dohServer(maps, suffixes)) return false;
     } else if (!isAppUid(uid)) {

@@ -23,6 +23,8 @@ import java.util.Set;
 /** Keeps map writes in memory; a value of 0 deletes, as in the native maps. */
 final class FakeMaps implements Maps {
     final Map<Integer, Integer> uids = new HashMap<>();
+    /** The slots of the specific networks each uid is blocked and allowed on. */
+    final Map<Integer, List<Integer>> namedNetworks = new HashMap<>();
     final Map<Integer, Long> ifaces = new HashMap<>();
     final Map<Integer, Long> nets = new HashMap<>();
     final Map<Integer, Integer> userFlags = new HashMap<>();
@@ -62,6 +64,7 @@ final class FakeMaps implements Maps {
     @Override public boolean knowsLoopbackReceivers() { return knowsLoopbackReceivers; }
     @Override public void clearRules() {
         uids.clear();
+        namedNetworks.clear();
         ifaces.clear();
         nets.clear();
         userFlags.clear();
@@ -86,6 +89,11 @@ final class FakeMaps implements Maps {
             assertTrue("uid " + uid + " never got rules " + rules, left > 0);
             wait(left);
         }
+    }
+    @Override public int setNamedNetworks(int uid, int block, int allow) {
+        if (block == 0 && allow == 0) namedNetworks.remove(uid);
+        else namedNetworks.put(uid, List.of(block, allow));
+        return 0;
     }
     @Override public int setUserFlags(int user, int flags) {
         return put(userFlags, user, flags);

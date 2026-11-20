@@ -100,6 +100,7 @@ public final class FirewallService extends SystemService {
         mFeatures = List.of(
                 new BackupRestore(this),
                 new Schedules(this),
+                new SpecificNetworks(this),
                 new LineageImport(this, storeDir),
                 new NewAppBlocking(this),
                 new TargetRules(this),
@@ -328,9 +329,27 @@ public final class FirewallService extends SystemService {
         return changed;
     }
 
+    /** True if a feature needs everything written again before this sync. */
+    private boolean beforeSyncLocked() {
+        boolean everything = false;
+        for (Feature feature : mFeatures) everything |= feature.beforeSyncLocked();
+        return everything;
+    }
+
     /** Writes the rules for all of the user's apps, entries before the flags that enable them. */
     void syncUserLocked(int userId) {
+        if (beforeSyncLocked()) {
+            syncEverythingLocked();
+            return;
+        }
         for (Feature feature : mFeatures) feature.writeUserLocked(userId);
+    }
+
+    private void syncEverythingLocked() {
+        writeAppsLocked();
+        for (UserHandle user : mContext.getSystemService(UserManager.class).getUserHandles(false)) {
+            for (Feature feature : mFeatures) feature.writeUserLocked(user.getIdentifier());
+        }
     }
 
     /**
@@ -347,6 +366,10 @@ public final class FirewallService extends SystemService {
     }
 
     void syncAppsLocked() {
+        if (beforeSyncLocked()) {
+            syncEverythingLocked();
+            return;
+        }
         writeAppsLocked();
     }
 
@@ -385,7 +408,13 @@ public final class FirewallService extends SystemService {
     /** Whether the app has no network left: it's blocked from all, or on every one there is. */
     private boolean cutOffLocked(int uid) {
         int rules = mUidRules.get(uid);
-        return (rules & FirewallMaps.BLOCK_ALL) != 0 || mNetworks.blocksEveryNetwork(uid, rules);
+        int[] slots = {0, 0};
+        for (Feature feature : mFeatures) {
+            int[] named = feature.namedSlotsLocked(uid);
+            if (named != null) slots = named;
+        }
+        return (rules & FirewallMaps.BLOCK_ALL) != 0
+                || mNetworks.blocksEveryNetwork(uid, rules, slots[0], slots[1]);
     }
 
     /** Whether a feature lets some of the uid's traffic through though it has no network. */
@@ -652,6 +681,19 @@ public final class FirewallService extends SystemService {
         public AppRule[] getAppRulesForUser(int userId) {
             enforceUser(userId);
             return getAppRulesForUserInternal(userId);
+        }
+
+        @Override
+        public boolean setAppNetwork(String packageName, int userId, String network, int choice) {
+            enforceUser(userId);
+            return callAsSystem(() -> feature(SpecificNetworks.class).setAppNetworkInternal(
+                    packageName, userId, network, choice));
+        }
+
+        @Override
+        public KnownNetwork[] getNetworks(int userId) {
+            enforceUser(userId);
+            return callAsSystem(() -> feature(SpecificNetworks.class).getNetworksInternal(userId));
         }
 
         @Override

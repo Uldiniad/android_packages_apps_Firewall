@@ -25,13 +25,23 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Keeps the network id and interface maps in step with each network's bits: its transport, and
- * whether it is metered or roaming.
+ * Keeps the network id and interface maps in step with each network's bits: its transport,
+ * whether it is metered or roaming, and the bits features add, like a specific network's slot.
  */
 final class NetworkTracker extends ConnectivityManager.NetworkCallback {
+    /** A feature's bits for a network, from its capabilities; called with the tracker's lock. */
+    interface BitsSource {
+        long bitsOf(NetworkCapabilities nc, int transport);
+    }
+
     private final Map<Integer, Integer> mTransports = new HashMap<>();
     /** FirewallMaps.BLOCK_METERED and BLOCK_ROAMING, as each network is. */
     private final Map<Integer, Integer> mStates = new HashMap<>();
+    /** Each network's capabilities, from which sources take their bits. */
+    private final Map<Integer, NetworkCapabilities> mCapabilities = new HashMap<>();
+    /** Each network's bits from the sources, as last written. */
+    private final Map<Integer, Long> mSourceBits = new HashMap<>();
+    private final List<BitsSource> mSources = new ArrayList<>();
     private final Map<Integer, Set<Integer>> mInterfaces = new HashMap<>();
     private final Map<Integer, Set<Range<Integer>>> mVpnUids = new HashMap<>();
     /** Networks apps may use: with internet access and not restricted. */
@@ -45,6 +55,10 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
         mMaps = maps;
         mHandler = handler;
         mOnChange = onChange;
+    }
+
+    synchronized void addBitsSource(BitsSource source) {
+        mSources.add(source);
     }
 
     void start(Context context) {
@@ -70,14 +84,36 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
                         ? 0 : FirewallMaps.BLOCK_ROAMING);
     }
 
+    private long sourceBitsOf(int netId) {
+        long bits = 0;
+        for (BitsSource source : mSources) {
+            bits |= source.bitsOf(mCapabilities.get(netId), mTransports.get(netId));
+        }
+        return bits;
+    }
+
     private long bitsOf(int netId) {
-        return mTransports.get(netId) | mStates.getOrDefault(netId, 0);
+        return mTransports.get(netId) | mStates.getOrDefault(netId, 0)
+                | mSourceBits.getOrDefault(netId, 0L);
     }
 
     private void writeNet(int netId) {
         long bits = bitsOf(netId);
         mMaps.setNet(netId, bits);
         for (int ifindex : mInterfaces.getOrDefault(netId, Set.of())) mMaps.setIface(ifindex, bits);
+    }
+
+    /** Takes the sources' bits again, as what they give changed, and writes those that did. */
+    synchronized void refreshSourceBits() {
+        for (int netId : mTransports.keySet()) {
+            long bits = sourceBitsOf(netId);
+            if (!Long.valueOf(bits).equals(mSourceBits.put(netId, bits))) writeNet(netId);
+        }
+    }
+
+    /** The capabilities of the networks the device is on. */
+    synchronized List<NetworkCapabilities> connectedCapabilities() {
+        return new ArrayList<>(mCapabilities.values());
     }
 
     @Override
@@ -88,6 +124,9 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
         boolean changed = previous == null || previous != transport;
         int states = statesOf(nc);
         changed |= !Integer.valueOf(states).equals(mStates.put(netId, states));
+        mCapabilities.put(netId, nc);
+        long sourceBits = sourceBitsOf(netId);
+        changed |= !Long.valueOf(sourceBits).equals(mSourceBits.put(netId, sourceBits));
         Set<Range<Integer>> uids = transport == FirewallMaps.BLOCK_VPN ? nc.getUids() : null;
         if (uids != null && !uids.equals(mVpnUids.get(netId))) {
             mVpnUids.put(netId, uids);
@@ -128,6 +167,8 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
         int netId = network.getNetId();
         mTransports.remove(netId);
         mStates.remove(netId);
+        mCapabilities.remove(netId);
+        mSourceBits.remove(netId);
         mMaps.setNet(netId, 0);
         if (mVpnUids.remove(netId) != null) writeVpnRanges();
         for (int ifindex : mInterfaces.getOrDefault(netId, Set.of())) {
@@ -139,13 +180,23 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
         mHandler.post(mOnChange);
     }
 
-    /** Whether an app's switches block it on a network with these bits, as the programs decide. */
-    static boolean blocks(int rules, long bits) {
-        return (rules & (int) bits & FirewallMaps.NETWORKS) != 0;
+    /**
+     * Whether an app's switches block it on a network with these bits, as the BPF programs decide:
+     * its choice for a specific network wins over the switches for the network's kind.
+     */
+    static boolean blocks(int rules, int blockSlots, int allowSlots, long bits) {
+        int slots = (int) (bits >>> 32);
+        if ((allowSlots & slots) != 0) return false;
+        return (rules & (int) bits & FirewallMaps.NETWORKS) != 0 || (blockSlots & slots) != 0;
     }
 
     /** Whether the switches block every connected network {@code uid} may use, if it has one. */
     synchronized boolean blocksEveryNetwork(int uid, int rules) {
+        return blocksEveryNetwork(uid, rules, 0, 0);
+    }
+
+    /** The same, with the slots of the specific networks the app is blocked and allowed on. */
+    synchronized boolean blocksEveryNetwork(int uid, int rules, int blockSlots, int allowSlots) {
         Integer vpn = null;
         for (Map.Entry<Integer, Set<Range<Integer>>> entry : mVpnUids.entrySet()) {
             for (Range<Integer> range : entry.getValue()) {
@@ -153,7 +204,7 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
             }
         }
         if (vpn != null && !mBypassableVpns.contains(vpn)) {
-            return blocks(rules, bitsOf(vpn));
+            return blocks(rules, blockSlots, allowSlots, bitsOf(vpn));
         }
         boolean any = false;
         for (int netId : mUsable) {
@@ -161,7 +212,7 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
             if (transport == FirewallMaps.BLOCK_VPN && !Integer.valueOf(netId).equals(vpn)) {
                 continue;
             }
-            if (!blocks(rules, bitsOf(netId))) return false;
+            if (!blocks(rules, blockSlots, allowSlots, bitsOf(netId))) return false;
             any = true;
         }
         return any;

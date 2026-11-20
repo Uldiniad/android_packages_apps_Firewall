@@ -67,6 +67,7 @@ const std::vector<std::string> kMaps = {
         "learned",
         "scope_limits",
         "domain_rules",
+        "uid_networks",
 };
 const std::vector<std::pair<std::string, bpf_attach_type>> kProgs = {
         {"egress", BPF_CGROUP_INET_EGRESS}, {"ingress", BPF_CGROUP_INET_INGRESS},
@@ -136,6 +137,7 @@ class FirewallBpfTest : public ::testing::Test {
                      "domain_rules",
                      "learned",
                      "scope_limits",
+                     "uid_networks",
              }) {
             mMaps[name].reset(mapRetrieveRW(mapPath(name).c_str()));
             ASSERT_LE(0, mMaps[name].get()) << name << ": " << strerror(errno);
@@ -546,11 +548,29 @@ TEST_F(FirewallBpfTest, MeteredAndRoamingSwitchesFollowTheNetwork) {
     EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "example.test"));
 }
 
+TEST_F(FirewallBpfTest, AChoiceForASpecificNetworkWinsOverItsKind) {
+    constexpr uint32_t kSlot = 3;
+    setIfaceNetwork(FW_RULE_BLOCK_WIFI | 1ULL << (FW_NET_SLOT_SHIFT + kSlot));
+    setNetwork(FW_RULE_BLOCK_WIFI | 1ULL << (FW_NET_SLOT_SHIFT + kSlot));
+    setRules(FW_RULE_BLOCK_WIFI | FW_RULE_NAMED_NETWORKS);
+    put("uid_networks", kTestUid, fw_named_networks{.allow = 1u << kSlot});
+    EXPECT_EQ(0, sendMulticast(kPort));
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "198.51.100.1"));
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+
+    setRules(FW_RULE_NAMED_NETWORKS);
+    put("uid_networks", kTestUid, fw_named_networks{.block = 1u << kSlot});
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "198.51.100.1"));
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+}
+
 TEST_F(FirewallBpfTest, RulesLimitedToNetworksApplyOnlyThere) {
-    // Limit 1 is mobile data only, limit 2 every network but roaming ones.
+    constexpr uint64_t kHome = 1ULL << (FW_NET_SLOT_SHIFT + 5);
+    // Limit 1 is mobile data only, limit 2 every network but home.
     fw_limits limits = {};
     limits.only[1] = FW_RULE_BLOCK_CELLULAR;
-    limits.except[2] = FW_RULE_BLOCK_ROAMING;
+    limits.except[2] = kHome;
     put("scope_limits", kUserScope, limits);
     setRules(0);
     setUserFlags(FW_SCOPE_IP_BLOCKS | FW_SCOPE_PORT_BLOCKS | FW_SCOPE_DOMAINS | FW_SCOPE_LIMITS);
@@ -559,7 +579,7 @@ TEST_F(FirewallBpfTest, RulesLimitedToNetworksApplyOnlyThere) {
     putDomain(kUserScope, "ads.test",
               uint64_t{FW_DOMAIN_BLOCK | FW_DOMAIN_BLOCK_SUBDOMAINS} << (4 * 2));
 
-    setIfaceNetwork(FW_RULE_BLOCK_WIFI | FW_RULE_BLOCK_ROAMING);
+    setIfaceNetwork(FW_RULE_BLOCK_WIFI | kHome);
     EXPECT_EQ(0, sendMulticast(kPort));
     EXPECT_EQ(0, sendMulticast(10));
     setIfaceNetwork(FW_RULE_BLOCK_WIFI);
@@ -568,7 +588,7 @@ TEST_F(FirewallBpfTest, RulesLimitedToNetworksApplyOnlyThere) {
     setIfaceNetwork(FW_RULE_BLOCK_CELLULAR);
     EXPECT_EQ(EPERM, sendMulticast(kPort));
 
-    setNetwork(FW_RULE_BLOCK_WIFI | FW_RULE_BLOCK_ROAMING);
+    setNetwork(FW_RULE_BLOCK_WIFI | kHome);
     EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "www.ads.test"));
     setNetwork(FW_RULE_BLOCK_WIFI);
     EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "www.ads.test"));

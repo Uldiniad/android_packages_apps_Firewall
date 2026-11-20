@@ -36,6 +36,10 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
             "wifi", FirewallMaps.BLOCK_WIFI, "mobile", FirewallMaps.BLOCK_CELLULAR,
             "vpn", FirewallMaps.BLOCK_VPN, "other", FirewallMaps.BLOCK_OTHER,
             "metered", FirewallMaps.BLOCK_METERED, "roaming", FirewallMaps.BLOCK_ROAMING);
+    /** How the keys of specific networks start: an SSID, a subscription id, a package name. */
+    static final String WIFI = "wifi:";
+    static final String SIM = "sim:";
+    static final String VPN = "vpn:";
     private static final String[] KINDS = {"address", "domain", "port"};
     private static final Pattern DOMAIN_NAME = Pattern.compile("[a-z0-9_-]+(\\.[a-z0-9_-]+)*");
     private static final Comparator<List<String>> LISTS = (a, b) -> {
@@ -131,10 +135,19 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
         return ascii;
     }
 
-    /** Checks a network's key. */
+    /** Checks a network's key, as KnownNetwork describes it. */
     static String normalizeNetwork(String key) {
         if (key == null) throw new IllegalArgumentException("No network");
         if (NETWORK_KINDS.containsKey(key)) return key;
+        if (key.startsWith(WIFI) && key.length() > WIFI.length()) return key;
+        if (key.startsWith(SIM)) {
+            int subscription = Integer.parseInt(key.substring(SIM.length()));
+            if (subscription >= 0) return SIM + subscription;
+        }
+        if (key.startsWith(VPN)
+                && key.substring(VPN.length()).matches("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*")) {
+            return key;
+        }
         throw new IllegalArgumentException("Not a network: " + key);
     }
 

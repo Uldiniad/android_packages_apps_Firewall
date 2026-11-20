@@ -13,6 +13,9 @@ parcelable AppRule {
     boolean notified;
     /** How many FirewallRules the app has. */
     int ruleCount;
+    /** The specific networks the app has its own choice for, by KnownNetwork key. */
+    String[] allowedNetworks;
+    String[] blockedNetworks;
     /** Whether a pause blocks the app or allows it, and until when; 0 for no pause. */
     boolean pauseBlocks;
     long pauseUntil;

@@ -7,6 +7,7 @@ package org.lineageos.firewall;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import android.os.Process;
@@ -200,6 +201,7 @@ public class TargetRulesTest extends ServiceTestBase {
     public void networksBeyondWhatTheFirewallTellsApartAreRejected() {
         FirewallService service = start();
         TargetRules targets = service.feature(TargetRules.class);
+        SpecificNetworks specific = service.feature(SpecificNetworks.class);
         String[] kinds = {"wifi", "mobile", "vpn", "other", "metered", "roaming"};
         List<FirewallRule> limited = new ArrayList<>();
         for (int i = 1; i <= FirewallMaps.LIMITS; i++) {
@@ -214,6 +216,15 @@ public class TargetRulesTest extends ServiceTestBase {
         // Limit 0 is every network, which leaves LIMITS - 1 for rules.
         assertArrayEquals(new int[] {FirewallMaps.LIMITS - 1},
                 targets.addRulesInternal(limited.toArray(new FirewallRule[0])));
+
+        String[] ssids = new String[FirewallMaps.SLOTS + 1];
+        for (int i = 0; i < ssids.length; i++) ssids[i] = "wifi:\"Network " + i + "\"";
+        FirewallRule onNetworks = rule(PACKAGE, false, TargetRule.DOMAIN, "ads.test");
+        onNetworks.networks = ssids;
+        assertArrayEquals(new int[] {0}, targets.addRulesInternal(rules(onNetworks)));
+        onNetworks.networks = Arrays.copyOf(ssids, FirewallMaps.SLOTS);
+        assertArrayEquals(new int[0], targets.addRulesInternal(rules(onNetworks)));
+        assertFalse(specific.setAppNetworkInternal(PACKAGE, 0, "sim:1", IFirewall.NETWORK_BLOCK));
     }
 
     @Test

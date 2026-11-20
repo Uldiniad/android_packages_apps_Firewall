@@ -68,6 +68,7 @@ private fun RuleList(
 ) {
     val add = AddRulesPageProvider.navigator(userId, kind)
     val remove = rememberRemoveRuleDialog()
+    val names = rememberNetworkNames(userId)
     val shown =
         rules?.filter {
             it.kind == kind.kind && it.value.contains(searchQuery(), ignoreCase = true)
@@ -94,7 +95,7 @@ private fun RuleList(
                 ZeroStatePreference(Icons.Outlined.Block, stringResource(kind.empty))
         },
     ) { index ->
-        RuleRow(shown[index], remove)
+        RuleRow(shown[index], names, remove)
     }
 }
 

@@ -20,6 +20,8 @@ final class FirewallMaps {
     /** The bits that block an app on a network, as a network's own bits say what it is. */
     static final int NETWORKS = BLOCK_WIFI | BLOCK_CELLULAR | BLOCK_VPN | BLOCK_OTHER
             | BLOCK_METERED | BLOCK_ROAMING;
+    /** Set for apps with choices for specific networks. */
+    static final int NAMED_NETWORKS = 1 << 7;
     /** Set for apps with no network left that Connectivity can't keep to themselves. */
     static final int NO_LOOPBACK = 1 << 18;
 
@@ -44,6 +46,8 @@ final class FirewallMaps {
     static final int DOMAIN_ALLOW_SUBDOMAINS = 1 << 3;
     static final int PORT_BLOCK = 1;
     static final int PORT_ALLOW = 1 << 1;
+    /** Specific networks take a slot in the high word of network bits. */
+    static final int SLOTS = 32;
     /** Limit 0 is every network; rule entries hold bits for each limit. */
     static final int LIMITS = 16;
 
@@ -88,6 +92,7 @@ final class FirewallMaps {
     static native boolean nativeAttach();
     static native void nativeClearRules();
     static native int nativeSetUid(int uid, int rules);
+    static native int nativeSetNamedNetworks(int uid, int block, int allow);
     static native int nativeSetUserFlags(int user, int flags);
     static native int nativeSetIface(int ifindex, long net);
     static native int nativeSetNet(int netId, long net);

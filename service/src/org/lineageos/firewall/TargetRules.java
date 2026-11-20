@@ -222,6 +222,24 @@ final class TargetRules extends Feature {
         entries.forEach(this::writeScopeLocked);
     }
 
+    @Override
+    void addNamedNetworksLocked(Set<String> named, Integer userId) {
+        List<Set<TargetRule>> rules = new ArrayList<>();
+        appTargets.forEach((app, scope) -> {
+            if (userId == null || app.second.equals(userId)) rules.add(scope);
+        });
+        userTargets.forEach((user, scope) -> {
+            if (userId == null || user.equals(userId)) rules.add(scope);
+        });
+        for (Set<TargetRule> scope : rules) {
+            for (TargetRule rule : scope) {
+                for (String network : rule.networks()) {
+                    if (!TargetRule.NETWORK_KINDS.containsKey(network)) named.add(network);
+                }
+            }
+        }
+    }
+
     /** Writes the rules for all of the user's apps, entries before the flags that enable them. */
     @Override
     void writeUserLocked(int userId) {
@@ -272,11 +290,12 @@ final class TargetRules extends Feature {
          * Limits keep their numbers from the previous entries while rules use them, so answers
          * learned for allowed domains stay valid.
          */
-        static ScopeEntries of(Collection<TargetRule> rules, ScopeEntries previous) {
+        static ScopeEntries of(Collection<TargetRule> rules, Map<String, Integer> slots,
+                ScopeEntries previous) {
             Map<TargetRule, Pair<Long, Long>> limitOf = new HashMap<>();
             Set<Pair<Long, Long>> wanted = new HashSet<>();
             for (TargetRule rule : rules) {
-                Pair<Long, Long> limit = limitOf(rule);
+                Pair<Long, Long> limit = limitOf(rule, slots);
                 if (limit == null) continue;
                 limitOf.put(rule, limit);
                 if (!limit.equals(EVERY_NETWORK)) wanted.add(limit);
@@ -323,14 +342,16 @@ final class TargetRules extends Feature {
 
         /**
          * A rule's limit as the network bits it needs and those it excludes; null when no
-         * network can match it.
+         * network can match it, as its specific networks have no slot.
          */
-        private static Pair<Long, Long> limitOf(TargetRule rule) {
+        private static Pair<Long, Long> limitOf(TargetRule rule, Map<String, Integer> slots) {
             if (rule.networks().isEmpty()) return EVERY_NETWORK;
             long bits = 0;
             for (String network : rule.networks()) {
                 Integer kind = TargetRule.NETWORK_KINDS.get(network);
+                Integer slot = slots.get(network);
                 if (kind != null) bits |= kind;
+                if (slot != null) bits |= 1L << (32 + slot);
             }
             if (rule.exceptNetworks()) return Pair.create(0L, bits);
             return bits == 0 ? null : Pair.create(bits, 0L);
@@ -442,7 +463,9 @@ final class TargetRules extends Feature {
     }
 
     private ScopeEntries entriesLocked(int scope, Collection<TargetRule> rules) {
-        return ScopeEntries.of(rules, mScopeEntries.getOrDefault(scope, ScopeEntries.EMPTY));
+        SpecificNetworks networks = mService.feature(SpecificNetworks.class);
+        return ScopeEntries.of(rules, networks != null ? networks.slotsLocked() : Map.of(),
+                mScopeEntries.getOrDefault(scope, ScopeEntries.EMPTY));
     }
 
     FirewallRule[] getRulesInternal(int userId, String packageName) {
@@ -461,13 +484,15 @@ final class TargetRules extends Feature {
         synchronized (mService) {
             Set<Integer> users = new HashSet<>();
             boolean apps = false;
+            SpecificNetworks networks = mService.feature(SpecificNetworks.class);
+            Set<String> named = networks != null ? networks.namedNetworksLocked(null) : null;
             for (int i = 0; i < rules.length; i++) {
                 FirewallRule rule = rules[i];
                 try {
                     TargetRule target = TargetRule.fromParcel(rule);
                     List<Pair<String, Integer>> scope = rule.packageName == null ? null
                             : mService.sharingUidLocked(rule.packageName, rule.userId);
-                    if (!fitsLocked(target, rule.userId, scope)) {
+                    if (!fitsLocked(target, rule.userId, scope, named)) {
                         rejected.add(i);
                         continue;
                     }
@@ -496,11 +521,21 @@ final class TargetRules extends Feature {
     }
 
     /**
-     * Whether the firewall can tell the networks the rule names apart: each scope has its limits
-     * for at most LIMITS - 1 network lists.
+     * Whether the firewall can tell the networks the rule names apart: every specific network
+     * gets one of the slots, and each scope has its limits for at most LIMITS - 1 network lists.
      */
-    private boolean fitsLocked(TargetRule rule, int userId, List<Pair<String, Integer>> apps) {
+    private boolean fitsLocked(TargetRule rule, int userId, List<Pair<String, Integer>> apps,
+            Set<String> named) {
         if (rule.networks().isEmpty()) return true;
+        Set<String> wanted = named != null ? new HashSet<>(named) : new HashSet<>();
+        for (String network : rule.networks()) {
+            if (!TargetRule.NETWORK_KINDS.containsKey(network)) {
+                // Specific networks need the feature that gives them slots.
+                if (named == null) return false;
+                wanted.add(network);
+            }
+        }
+        if (wanted.size() > FirewallMaps.SLOTS) return false;
         Set<Pair<List<String>, Boolean>> limits = new HashSet<>();
         limits.add(Pair.create(rule.networks(), rule.exceptNetworks()));
         List<Set<TargetRule>> scope = new ArrayList<>();
@@ -519,6 +554,7 @@ final class TargetRules extends Feature {
             }
         }
         if (limits.size() >= FirewallMaps.LIMITS) return false;
+        if (named != null) named.addAll(wanted);
         return true;
     }
 
@@ -637,7 +673,8 @@ final class TargetRules extends Feature {
         pw.println("      leaves a domain's subdomains out; --tcp or --udp limits a port rule,");
         pw.println("      whose VALUE is a port or a range like 6881-6889.");
         pw.println("      --on limits the rule to networks, --except to all others. NETWORK:");
-        pw.println("      wifi, mobile, vpn, other, metered or roaming.");
+        pw.println("      wifi, mobile, vpn, other, metered, roaming, or a specific network");
+        pw.println("      from list-networks.");
         pw.println("  list-rules [--package PACKAGE] [--user USER]");
     }
 }

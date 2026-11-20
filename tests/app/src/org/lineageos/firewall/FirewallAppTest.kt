@@ -86,6 +86,13 @@ class FirewallAppTest {
         firewall.setAppRules(testPackage, userId, 0)
         firewall.setPause(testPackage, userId, false, 0)
         firewall.setSchedule(testPackage, userId, 0, 0, 0)
+        firewall.getAppRulesForUser(userId).find { it.packageName == testPackage }?.let { rule ->
+            val networks =
+                rule.allowedNetworks.orEmpty().toList() + rule.blockedNetworks.orEmpty().toList()
+            for (network in networks) {
+                firewall.setAppNetwork(testPackage, userId, network, IFirewall.NETWORK_DEFAULT)
+            }
+        }
         firewall.removeRules(
             (firewall.getRules(userId, testPackage) + firewall.getRules(userId, null))
                 .filter { it.value in TEST_VALUES }
@@ -97,6 +104,13 @@ class FirewallAppTest {
     /** The app's own text, in the device's language. */
     private fun text(name: String, vararg args: Any) =
         appResources.getString(appResources.getIdentifier(name, "string", APP), *args)
+
+    private fun plural(name: String, count: Int) =
+        appResources.getQuantityString(
+            appResources.getIdentifier(name, "plurals", APP),
+            count,
+            count,
+        )
 
     /** Opens a page of the app and runs the steps, starting as AOSP Settings' UI tests do. */
     private fun onPage(route: String, steps: () -> Unit) {
@@ -300,6 +314,43 @@ class FirewallAppTest {
             firewall.setAppRules(testPackage, userId, IFirewall.BLOCK_VPN)
             waitUntil { !isOn(text("network_vpn")) }
         }
+
+    @Test
+    fun appPageSetsAChoiceForTheWifiItIsOn() {
+        val wifi = firewall.getNetworks(userId).find { it.connected && it.key.startsWith("wifi:") }
+        assumeTrue("Needs Wi-Fi", wifi != null)
+        onPage("AppRules/$testPackage/$userId") {
+            scrollTo(text("specific_networks")).click()
+            find(checkNotNull(wifi).name).click()
+            find(text("choice_blocked")).click()
+            waitUntil {
+                firewall.getAppRulesForUser(userId)
+                    .find { it.packageName == testPackage }
+                    ?.blockedNetworks
+                    ?.contains(wifi.key) == true
+            }
+            device.pressBack()
+            scrollTo(plural("specific_network_count", 1))
+        }
+    }
+
+    @Test
+    fun specificNetworksPageListsEachKindOrSaysThereIsNone() {
+        val networks = firewall.getNetworks(userId)
+        onPage("SpecificNetworks/$testPackage/$userId") {
+            for ((prefix, heading, none) in SPECIFIC_KINDS) {
+                scrollTo(text(heading))
+                val first = networks.firstOrNull { it.key.startsWith(prefix) }
+                scrollTo(
+                    when {
+                        first == null -> text(none)
+                        first.name == null -> text("removed_sim", first.key.substringAfter(':'))
+                        else -> first.name
+                    }
+                )
+            }
+        }
+    }
 
     @Test
     fun appPageBlocksTheAppForAWhile() =
@@ -744,6 +795,12 @@ class FirewallAppTest {
                 "network_other" to IFirewall.BLOCK_OTHER,
                 "network_metered" to IFirewall.BLOCK_METERED,
                 "network_roaming" to IFirewall.BLOCK_ROAMING,
+            )
+        val SPECIFIC_KINDS =
+            listOf(
+                Triple("wifi:", "specific_wifi", "no_saved_wifi"),
+                Triple("sim:", "specific_sims", "no_sims"),
+                Triple("vpn:", "specific_vpns", "no_vpn_apps"),
             )
         val RULE_TABS =
             listOf(

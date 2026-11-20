@@ -36,11 +36,17 @@
 #define FW_RULE_BLOCK_DNS (1u << 5)
 #define FW_RULE_TRANSPORTS \
     (FW_RULE_BLOCK_WIFI | FW_RULE_BLOCK_CELLULAR | FW_RULE_BLOCK_VPN | FW_RULE_BLOCK_OTHER)
+// Set for apps with choices for specific networks, kept in uid_networks.
+#define FW_RULE_NAMED_NETWORKS (1u << 7)
 // Set for apps with no network left that Connectivity can't keep to themselves on loopback.
 #define FW_RULE_NO_LOOPBACK (1u << 18)
 #define FW_RULE_BLOCK_METERED (1u << 16)
 #define FW_RULE_BLOCK_ROAMING (1u << 17)
 #define FW_RULE_NETWORKS (FW_RULE_TRANSPORTS | FW_RULE_BLOCK_METERED | FW_RULE_BLOCK_ROAMING)
+
+// A network's bits are the rule bits that block it: its transport, and whether it is metered or
+// roaming. The high word holds the slot of the specific network it is, if rules name it.
+#define FW_NET_SLOT_SHIFT 32
 
 // Rules for addresses, domains and ports belong to a scope: an app's uid, or a user with
 // FW_USER_SCOPE set. Which kinds a scope has is kept with an app's rules and in user_flags, so
@@ -178,6 +184,12 @@ struct fw_learned_key {
     __u8 addr[16];
 };
 
+// The slots of the specific networks an app is blocked or allowed on.
+struct fw_named_networks {
+    __u32 block;
+    __u32 allow;
+};
+
 struct fw_limits {
     __u64 only[FW_LIMITS];
     __u64 except[FW_LIMITS];
@@ -186,10 +198,12 @@ struct fw_limits {
 // Shared with netd's lookup check, so both decide alike.
 #define FW_INLINE static inline __attribute__((always_inline))
 
-// Whether the app's switches block it on the network, whose bits are the rule bits that block it:
-// its transport, and whether it is metered or roaming.
-FW_INLINE bool fw_network_blocked(__u32 rules, __u64 net) {
-    return rules & (__u32)net & FW_RULE_NETWORKS;
+// Whether the app's switches block it on the network. A choice for a specific network wins over
+// the switches for the network's kind.
+FW_INLINE bool fw_network_blocked(__u32 rules, const struct fw_named_networks* named, __u64 net) {
+    __u32 slots = net >> FW_NET_SLOT_SHIFT;
+    if (named && (named->allow & slots)) return false;
+    return (rules & (__u32)net & FW_RULE_NETWORKS) || (named && (named->block & slots));
 }
 
 // 1 if x isn't 0, without a branch; the barrier keeps the compiler from making it one.

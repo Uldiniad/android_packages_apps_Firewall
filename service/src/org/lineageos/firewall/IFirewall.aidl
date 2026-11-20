@@ -8,6 +8,7 @@ package org.lineageos.firewall;
 import org.lineageos.firewall.AppRule;
 import org.lineageos.firewall.FirewallRule;
 import org.lineageos.firewall.IFirewallListener;
+import org.lineageos.firewall.KnownNetwork;
 
 interface IFirewall {
     /** Rule bits; each set bit blocks the app somewhere. */
@@ -20,6 +21,11 @@ interface IFirewall {
     /** Metered networks and roaming, whatever the transport; also while the app is in use. */
     const int BLOCK_METERED = 65536;
     const int BLOCK_ROAMING = 131072;
+
+    /** An app's choice for a specific network: to follow the switch for its kind, or its own. */
+    const int NETWORK_DEFAULT = 0;
+    const int NETWORK_ALLOW = 1;
+    const int NETWORK_BLOCK = 2;
 
     /** What a FirewallRule names. */
     const int RULE_ADDRESS = 0;
@@ -40,6 +46,14 @@ interface IFirewall {
     int getAppRules(String packageName, int userId);
     AppRule[] getAppRulesForUser(int userId);
 
+    /**
+     * Sets the app's choice for a specific network, by its KnownNetwork key. False if rules and
+     * choices already name as many specific networks as the firewall can tell apart.
+     */
+    boolean setAppNetwork(String packageName, int userId, String network, int choice);
+
+    /** The user's specific networks: saved Wi-Fi networks, SIMs, VPN apps, and any rules name. */
+    KnownNetwork[] getNetworks(int userId);
     /** The rules of one app, or with a null packageName those for all of the user's apps. */
     FirewallRule[] getRules(int userId, @nullable String packageName);
     /** Adds the rules; returns the positions of those it rejected, like a malformed address. */

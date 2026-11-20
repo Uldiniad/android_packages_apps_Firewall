@@ -99,12 +99,20 @@ abstract class Feature {
         return false;
     }
 
+    /** Adds the specific networks the feature's rules name, of the user, or of all if null. */
+    void addNamedNetworksLocked(Set<String> named, Integer userId) {}
+
     /** Adds the apps this feature has state for, which have rules even without switches. */
     void addAppsWithStateLocked(Set<Pair<String, Integer>> apps) {}
 
     /** The app's switches at the time, as the feature changes them; rules by default. */
     int rulesNowLocked(Pair<String, Integer> app, int rules, long now) {
         return rules;
+    }
+
+    /** Called before a sync; true if everything must be written again, not only apps. */
+    boolean beforeSyncLocked() {
+        return false;
     }
 
     /**
@@ -119,6 +127,11 @@ abstract class Feature {
     /** Whether the uid's rules let some traffic through even when it has no network left. */
     boolean letsThroughLocked(int rules) {
         return false;
+    }
+
+    /** The slots of specific networks the uid is blocked and allowed on, as {block, allow}. */
+    int[] namedSlotsLocked(int uid) {
+        return null;
     }
 
     /** Fills in what the feature knows of the app for the firewall app. */

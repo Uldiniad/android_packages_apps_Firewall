@@ -64,7 +64,10 @@ object NotRunningNotification {
      */
     private fun hasRules(service: IFirewall, userId: Int) =
         service.areNewInstallsBlocked(userId) ||
-            service.getAppRulesForUser(userId).any { it.rules != 0 && !it.isDefault }
+            service.getRules(userId, null).isNotEmpty() ||
+            service.getAppRulesForUser(userId).any {
+                (it.rules != 0 && !it.isDefault) || it.ruleCount > 0
+            }
 }
 
 /** Checks once each user unlocks after a boot. */

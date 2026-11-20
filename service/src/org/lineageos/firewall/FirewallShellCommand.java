@@ -24,7 +24,8 @@ final class FirewallShellCommand extends BasicShellCommandHandler {
             "vpn", FirewallMaps.BLOCK_VPN,
             "other", FirewallMaps.BLOCK_OTHER,
             "metered", FirewallMaps.BLOCK_METERED,
-            "roaming", FirewallMaps.BLOCK_ROAMING);
+            "roaming", FirewallMaps.BLOCK_ROAMING,
+            "dns", FirewallMaps.BLOCK_DNS);
 
     private final FirewallService mService;
 

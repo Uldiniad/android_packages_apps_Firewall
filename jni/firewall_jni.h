@@ -72,5 +72,8 @@ jint setPrefix(JNIEnv* env, jbyteArray address, Key4 key4, Key6 key6,
 // Each feature opens and clears its maps, and registers its natives on FirewallMaps.
 bool initRefusalCounts();
 int registerRefusalCounts(JNIEnv* env, jclass cls);
+bool initTargetRules();
+void clearTargetRules();
+int registerTargetRules(JNIEnv* env, jclass cls);
 
 }  // namespace firewall

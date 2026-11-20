@@ -112,6 +112,26 @@ public class VpnTests {
     }
 
     @Test
+    public void rulesLimitedToTheVpnApplyThroughIt() throws Exception {
+        startVpn(false, null);
+        String rule = "cmd firewall %s block address 198.51.100.1 --package " + Firewall.PACKAGE
+                + " --on %s --user " + Firewall.userId();
+        runShellCommand(String.format(rule, "add-rule", "vpn"));
+        try {
+            assertFalse(Firewall.udpSends(REMOTE, 9));
+            assertTrue(Firewall.udpSends(address("203.0.113.1"), 9));
+        } finally {
+            runShellCommand(String.format(rule, "remove-rule", "vpn"));
+        }
+        runShellCommand(String.format(rule, "add-rule", "wifi"));
+        try {
+            assertTrue(Firewall.udpSends(REMOTE, 9));
+        } finally {
+            runShellCommand(String.format(rule, "remove-rule", "wifi"));
+        }
+    }
+
+    @Test
     public void bypassableVpnKeepsWifiAsAWayOut() throws Exception {
         startVpn(true, null);
         Firewall.setRules("vpn");

@@ -1,0 +1,152 @@
+/*
+ * SPDX-FileCopyrightText: The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package org.lineageos.firewall
+
+import android.content.Context
+import androidx.annotation.PluralsRes
+import androidx.annotation.StringRes
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.android.settingslib.spa.widget.preference.Preference
+import com.android.settingslib.spa.widget.preference.PreferenceModel
+import com.android.settingslib.spa.widget.ui.Category
+import com.android.settingslib.spa.widget.ui.SettingsIcon
+
+/** A network as rule summaries list it: a kind by its list name. */
+fun Context.networkListName(key: String): String =
+    Network.entries.find { it.key == key }?.let { getString(it.listName) } ?: key
+
+/** What a rule can name, in the order the app shows them. */
+enum class RuleKind(
+    val kind: Int,
+    @StringRes val title: Int,
+    @StringRes val add: Int,
+    @StringRes val empty: Int,
+    @StringRes val hint: Int,
+    @StringRes val invalid: Int,
+    @PluralsRes val count: Int,
+) {
+    DOMAIN(
+        IFirewall.RULE_DOMAIN,
+        R.string.kind_domains,
+        R.string.add_domains,
+        R.string.no_domain_rules,
+        R.string.domains_hint,
+        R.string.domains_invalid,
+        R.plurals.domain_rule_count,
+    ),
+    ADDRESS(
+        IFirewall.RULE_ADDRESS,
+        R.string.kind_addresses,
+        R.string.add_addresses,
+        R.string.no_address_rules,
+        R.string.addresses_hint,
+        R.string.addresses_invalid,
+        R.plurals.address_rule_count,
+    ),
+    PORT(
+        IFirewall.RULE_PORT,
+        R.string.kind_ports,
+        R.string.add_ports,
+        R.string.no_port_rules,
+        R.string.ports_hint,
+        R.string.ports_invalid,
+        R.plurals.port_rule_count,
+    ),
+}
+
+/** Sums up the rules for all apps by kind, like "3 domains and 2 IP addresses". */
+fun Context.allAppsRulesSummary(rules: List<FirewallRule>): String {
+    val counts =
+        RuleKind.entries.mapNotNull { kind ->
+            val count = rules.count { it.kind == kind.kind }
+            if (count == 0) null else resources.getQuantityString(kind.count, count, count)
+        }
+    return if (counts.isEmpty()) getString(R.string.all_apps_rules_none) else formatList(counts)
+}
+
+fun Context.ruleTitle(rule: FirewallRule): String =
+    when {
+        rule.kind != IFirewall.RULE_PORT -> rule.value
+        '-' in rule.value -> getString(R.string.ports_title, rule.value)
+        else -> getString(R.string.port_title, rule.value)
+    }
+
+/** A rule's summary, with the networks it is limited to. */
+fun Context.ruleSummary(rule: FirewallRule): String {
+    val summary = targetSummary(rule)
+    val networks = rule.networks.orEmpty()
+    if (networks.isEmpty()) return summary
+    return getString(
+        if (rule.exceptNetworks) R.string.rule_except_networks else R.string.rule_only_networks,
+        summary,
+        formatList(networks.map { networkListName(it) }),
+    )
+}
+
+private fun Context.targetSummary(rule: FirewallRule): String =
+    getString(
+        when {
+            rule.kind == IFirewall.RULE_DOMAIN && rule.subdomains ->
+                if (rule.allow) R.string.rule_allowed_subdomains
+                else R.string.rule_blocked_subdomains
+            rule.protocol == IFirewall.PROTOCOL_TCP ->
+                if (rule.allow) R.string.rule_allowed_tcp else R.string.rule_blocked_tcp
+            rule.protocol == IFirewall.PROTOCOL_UDP ->
+                if (rule.allow) R.string.rule_allowed_udp else R.string.rule_blocked_udp
+            else -> if (rule.allow) R.string.rule_allowed else R.string.rule_blocked
+        }
+    )
+
+/** The rules of one app, or with a null packageName those for all of the user's apps. */
+fun Firewall.rules(userId: Int, packageName: String?) =
+    load { getRules(userId, packageName).toList() }
+
+/** The app list's summary of an app with its count of rules, like "Allowed · 2 rules". */
+fun Context.withRuleCount(rule: AppRule?, summary: String): String {
+    val count = rule?.ruleCount ?: 0
+    if (count == 0) return summary
+    return getString(
+        R.string.summary_with_rules,
+        summary,
+        resources.getQuantityString(R.plurals.rule_count, count, count),
+    )
+}
+
+/** What the app page's footer says about rules. */
+fun Context.rulesFooter(): String = getString(R.string.rules_footer)
+
+/** The app's rules for domains, addresses and ports. */
+@Composable
+fun TargetRules(packageName: String, userId: Int) {
+    val rules by
+        remember(packageName, userId) { Firewall.rules(userId, packageName) }
+            .collectAsStateWithLifecycle(null)
+    val remove = rememberRemoveRuleDialog()
+    Category(title = stringResource(R.string.rules_title)) {
+        val shown = rules.orEmpty()
+        if (rules != null && shown.isEmpty()) {
+            Preference(
+                object : PreferenceModel {
+                    override val title = stringResource(R.string.no_app_rules)
+                }
+            )
+        }
+        for (rule in shown) RuleRow(rule, remove)
+        Preference(
+            object : PreferenceModel {
+                override val title = stringResource(R.string.add_rule)
+                override val icon = @Composable { SettingsIcon(Icons.Outlined.Add) }
+                override val onClick = AddAppRulesPageProvider.navigator(packageName, userId)
+            }
+        )
+    }
+}

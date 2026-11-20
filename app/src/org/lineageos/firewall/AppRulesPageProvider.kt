@@ -113,6 +113,7 @@ private fun AppRulesPage(packageName: String, userId: Int) {
                 )
             }
         }
+        TargetRules(packageName, userId)
         Category {
             DataUsagePreference(userId)
         }
@@ -152,6 +153,7 @@ private fun AppRulesFooter(packageName: String, userId: Int, rule: AppRule?) {
             add(context.getString(R.string.app_rules_footer_shared, context.formatList(shared)))
         }
         add(context.getString(R.string.app_rules_footer))
+        add(context.rulesFooter())
     }
     SettingsBody(paragraphs.joinToString("\n\n"))
 }

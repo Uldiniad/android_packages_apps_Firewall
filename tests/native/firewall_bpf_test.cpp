@@ -23,6 +23,7 @@
 #include <gtest/gtest.h>
 
 #include "firewall.h"
+#include "firewall_domain.h"
 #include "firewall_lookup.h"
 #include "tun_interface.h"
 
@@ -34,6 +35,7 @@ using android::bpf::mapRetrieveRW;
 using android::bpf::retrieveProgram;
 using android::bpf::writeToMapEntry;
 using android::firewall::allowsLookup;
+using android::firewall::learnAnswer;
 using android::net::TunInterface;
 
 namespace {
@@ -42,6 +44,8 @@ namespace {
 // socket with it makes the firewall apply its rules.
 constexpr uint32_t kTestUser = 99;
 constexpr uint32_t kTestUid = kTestUser * 100000 + 10999;
+constexpr uint32_t kUserScope = FW_USER_SCOPE | kTestUser;
+constexpr uint32_t kOtherUser = 98;
 constexpr uint32_t kTestNetId = 64999;
 constexpr int kPort = 9;
 constexpr const char* kCgroup = "/sys/fs/cgroup";
@@ -54,6 +58,15 @@ const std::vector<std::string> kMaps = {
         "counters",
         "refusals",
         "refusal_stats",
+        "user_flags",
+        "ip4_block",
+        "ip6_block",
+        "ip4_allow",
+        "ip6_allow",
+        "port_rules",
+        "learned",
+        "scope_limits",
+        "domain_rules",
 };
 const std::vector<std::pair<std::string, bpf_attach_type>> kProgs = {
         {"egress", BPF_CGROUP_INET_EGRESS}, {"ingress", BPF_CGROUP_INET_INGRESS},
@@ -83,6 +96,28 @@ std::vector<uint32_t> attachedIds(int cgroupFd, bpf_attach_type type) {
     return std::vector<uint32_t>(ids, ids + attr.query.prog_cnt);
 }
 
+std::vector<uint8_t> dnsQuery(const std::string& name) {
+    std::vector<uint8_t> q = {0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0};
+    size_t start = 0;
+    while (start <= name.size()) {
+        size_t dot = name.find('.', start);
+        if (dot == std::string::npos) dot = name.size();
+        q.push_back(dot - start);
+        q.insert(q.end(), name.begin() + start, name.begin() + dot);
+        start = dot + 1;
+    }
+    q.insert(q.end(), {0, 0, 1, 0, 1});
+    return q;
+}
+
+in6_addr ipv4Mapped(const char* address) {
+    in6_addr mapped = {};
+    mapped.s6_addr[10] = 0xff;
+    mapped.s6_addr[11] = 0xff;
+    inet_pton(AF_INET, address, &mapped.s6_addr[12]);
+    return mapped;
+}
+
 class FirewallBpfTest : public ::testing::Test {
   protected:
     void SetUp() override {
@@ -92,6 +127,15 @@ class FirewallBpfTest : public ::testing::Test {
                      "iface_transport",
                      "net_transport",
                      "refusal_stats",
+                     "user_flags",
+                     "ip4_block",
+                     "ip6_block",
+                     "ip4_allow",
+                     "ip6_allow",
+                     "port_rules",
+                     "domain_rules",
+                     "learned",
+                     "scope_limits",
              }) {
             mMaps[name].reset(mapRetrieveRW(mapPath(name).c_str()));
             ASSERT_LE(0, mMaps[name].get()) << name << ": " << strerror(errno);
@@ -117,11 +161,43 @@ class FirewallBpfTest : public ::testing::Test {
     }
 
     void setRules(uint32_t rules) { put("uid_rules", kTestUid, rules); }
+    void setUserFlags(uint32_t flags) { put("user_flags", kTestUser, flags); }
     // The bits of the test interface's network, and of the test network.
     void setIfaceNetwork(uint64_t bits) {
         put("iface_transport", static_cast<uint32_t>(mTun.ifindex()), bits);
     }
     void setNetwork(uint64_t bits) { put("net_transport", kTestNetId, bits); }
+
+    void putIp4(const std::string& map, uint32_t scope, const char* address, uint32_t bits,
+                uint32_t limits = 1) {
+        fw_scope_ip4_key key = {.prefixlen = 32 + bits, .scope = scope};
+        inet_pton(AF_INET, address, key.addr);
+        put(map, key, limits);
+    }
+
+    void putMulticast(const std::string& map, uint32_t scope, uint32_t limits = 1) {
+        fw_scope_ip6_key key = {.prefixlen = 32 + 128, .scope = scope};
+        inet_pton(AF_INET6, "ff02::1", key.addr);
+        put(map, key, limits);
+    }
+
+    void putDomain(uint32_t scope, const char* name, uint64_t bits) {
+        put("domain_rules", fw_scope_domain_key{.scope = scope, .hash = fw_domain_hash(name)},
+            bits);
+    }
+
+    void putPort(uint32_t scope, uint16_t port, uint8_t protocol, uint32_t bits) {
+        putPorts(scope, port, 16, protocol, bits);
+    }
+
+    // The ports that share the port's first prefixLength bits.
+    void putPorts(uint32_t scope, uint16_t port, uint32_t prefixLength, uint8_t protocol,
+                  uint32_t bits) {
+        fw_port_key key = {.prefixlen = FW_PORT_PREFIX_BITS + prefixLength, .scope = scope,
+                           .protocol = protocol,
+                           .port = {static_cast<uint8_t>(port >> 8), static_cast<uint8_t>(port)}};
+        put("port_rules", key, bits);
+    }
 
     unique_fd testSocket(int family) {
         unique_fd fd(socket(family, SOCK_DGRAM | SOCK_CLOEXEC, 0));
@@ -282,25 +358,180 @@ TEST_F(FirewallBpfTest, TransportRuleUsesTheEgressInterface) {
     EXPECT_FALSE(tunSaw(kPort));
 }
 
+TEST_F(FirewallBpfTest, AddressRulesForAllOfTheAppsUsersApps) {
+    setRules(0);
+    setUserFlags(FW_SCOPE_IP_BLOCKS);
+    putIp4("ip4_block", kUserScope, "198.51.100.0", 24);
+    putIp4("ip4_block", FW_USER_SCOPE | kOtherUser, "203.0.113.0", 24);
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "198.51.100.7"));
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "203.0.113.7"));
+    // IPv4-mapped IPv6 addresses are checked against the IPv4 rules.
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET6, "::ffff:198.51.100.7"));
+
+    putMulticast("ip6_block", kUserScope);
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+}
+
+TEST_F(FirewallBpfTest, DomainRulesCoverSubdomainsOnlyWhenTheySaySo) {
+    setRules(0);
+    setUserFlags(FW_SCOPE_DOMAINS);
+    putDomain(kUserScope, "blocked.test", FW_DOMAIN_BLOCK);
+    putDomain(kUserScope, "ads.test", FW_DOMAIN_BLOCK | FW_DOMAIN_BLOCK_SUBDOMAINS);
+    putDomain(kUserScope, "good.ads.test", FW_DOMAIN_ALLOW);
+    putDomain(FW_USER_SCOPE | kOtherUser, "other.test",
+              FW_DOMAIN_BLOCK | FW_DOMAIN_BLOCK_SUBDOMAINS);
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "blocked.test"));
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "www.blocked.test"));
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "ads.test"));
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "x.Ads.test"));
+    // An allow rule wins over a block rule for the same apps.
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "good.ads.test"));
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "other.test"));
+}
+
+TEST_F(FirewallBpfTest, AnAppsOwnDnsIsBlockedWhileDomainRulesApply) {
+    setRules(0);
+    EXPECT_EQ(0, sendMulticast(53, dnsQuery("example.test")));
+    setRules(FW_SCOPE_DOMAINS);
+    EXPECT_EQ(EPERM, sendMulticast(53, dnsQuery("example.test")));
+    // DNS over TLS and over QUIC share their port.
+    EXPECT_EQ(EPERM, sendMulticast(853));
+    EXPECT_EQ(0, sendMulticast(kPort));
+    setRules(0);
+    setUserFlags(FW_SCOPE_DOMAINS);
+    EXPECT_EQ(EPERM, sendMulticast(53, dnsQuery("example.test")));
+    // The app's allow rules still come before its user's rules.
+    setRules(FW_SCOPE_IP_ALLOWS);
+    putMulticast("ip6_allow", kTestUid);
+    EXPECT_EQ(0, sendMulticast(53, dnsQuery("example.test")));
+}
+
+TEST_F(FirewallBpfTest, KnownDohServersCountAsTheAppsOwnDnsOnAnyPort) {
+    putMulticast("ip6_block", FW_DOH_SCOPE);
+    setRules(0);
+    EXPECT_EQ(0, sendMulticast(kPort));
+    setRules(FW_SCOPE_DOMAINS);
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+    setRules(0);
+    setUserFlags(FW_SCOPE_DOMAINS);
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+}
+
+TEST_F(FirewallBpfTest, AllowRulesLetABlockedAppReachOnlyWhatTheyName) {
+    setRules(FW_RULE_BLOCK_ALL | FW_SCOPE_IP_ALLOWS | FW_SCOPE_PORT_ALLOWS | FW_SCOPE_LEARNED);
+    putIp4("ip4_allow", kTestUid, "198.51.100.0", 24);
+    fw_learned_key learned = {.scope = kTestUid};
+    in6_addr address = ipv4Mapped("203.0.113.9");
+    memcpy(learned.addr, &address, sizeof(learned.addr));
+    put("learned", learned, uint32_t{1});
+    putPort(kTestUid, 5353, IPPROTO_UDP, FW_PORT_ALLOW);
+
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "198.51.100.7"));
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.10"));
+    EXPECT_EQ(0, sendMulticast(5353));
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+}
+
+TEST_F(FirewallBpfTest, AnAppsRulesComeBeforeItsUsersRules) {
+    setRules(FW_SCOPE_IP_ALLOWS | FW_SCOPE_IP_BLOCKS);
+    setUserFlags(FW_SCOPE_IP_ALLOWS | FW_SCOPE_IP_BLOCKS);
+    putIp4("ip4_block", kUserScope, "198.51.100.0", 24);
+    putIp4("ip4_allow", kTestUid, "198.51.100.7", 32);
+    putIp4("ip4_block", kTestUid, "203.0.113.0", 24);
+    putIp4("ip4_allow", kUserScope, "203.0.113.7", 32);
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "198.51.100.7"));
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "198.51.100.8"));
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.7"));
+    // Within the user's rules, the allow rule wins.
+    putIp4("ip4_allow", kUserScope, "198.51.100.8", 32);
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "198.51.100.8"));
+}
+
+TEST_F(FirewallBpfTest, PortRulesMatchTheirProtocol) {
+    setRules(FW_SCOPE_PORT_BLOCKS);
+    putPort(kTestUid, kPort, IPPROTO_UDP, FW_PORT_BLOCK);
+    putPort(kTestUid, 11, IPPROTO_TCP, FW_PORT_BLOCK);
+    putPort(kTestUid, 12, 0, FW_PORT_BLOCK);
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+    EXPECT_EQ(0, sendMulticast(10));
+    EXPECT_EQ(0, sendMulticast(11));
+    EXPECT_EQ(EPERM, sendMulticast(12));
+}
+
+TEST_F(FirewallBpfTest, PortRangesMatchThroughTheirPrefixes) {
+    setRules(FW_SCOPE_PORT_BLOCKS);
+    // Ports 8 to 15, one of the prefixes the service splits a range into.
+    putPorts(kTestUid, 8, 13, 0, FW_PORT_BLOCK);
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+    EXPECT_EQ(0, sendMulticast(16));
+}
+
 TEST_F(FirewallBpfTest, RefusalsAreCountedWithEveryReason) {
-    // Blocked everywhere and on this network.
+    // Blocked everywhere and on this network, with its own address rule and a port rule for all
+    // apps that match too.
     setNetwork(FW_RULE_BLOCK_CELLULAR);
-    setRules(FW_RULE_BLOCK_ALL | FW_RULE_BLOCK_CELLULAR);
+    setRules(FW_RULE_BLOCK_ALL | FW_RULE_BLOCK_CELLULAR | FW_SCOPE_IP_BLOCKS);
+    putIp4("ip4_block", kTestUid, "203.0.113.7", 32);
+    setUserFlags(FW_SCOPE_PORT_BLOCKS);
+    putPort(kUserScope, 7, IPPROTO_UDP, FW_PORT_BLOCK);
     fw_refusal_key key = clearedRefusal(FW_REFUSAL_CONNECT, AF_INET, "203.0.113.7", 7);
     EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.7", 7));
     EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.7", 7));
     fw_refusal_stats stats = refusalStats(key);
     EXPECT_EQ(2u, stats.count);
-    EXPECT_EQ(FW_REFUSED_ALL | FW_REFUSED_NETWORK, stats.reasons);
+    EXPECT_EQ(FW_REFUSED_ALL | FW_REFUSED_NETWORK | FW_REFUSED_ADDRESS | FW_REFUSED_USER_PORT,
+              stats.reasons);
     EXPECT_LE(stats.first_ns, stats.last_ns);
 
-    // Packets out count too.
-    setRules(FW_RULE_BLOCK_ALL);
-    key = clearedRefusal(FW_REFUSAL_OUT, AF_INET6, "ff02::1", kPort);
-    EXPECT_EQ(EPERM, sendMulticast(kPort));
+    // Packets out count too, with the reasons only they have.
+    setUserFlags(0);
+    setRules(FW_RULE_BLOCK_DNS);
+    key = clearedRefusal(FW_REFUSAL_OUT, AF_INET6, "ff02::1", 53);
+    EXPECT_EQ(EPERM, sendMulticast(53, dnsQuery("example.test")));
     stats = refusalStats(key);
     EXPECT_EQ(1u, stats.count);
-    EXPECT_EQ(FW_REFUSED_ALL, stats.reasons);
+    EXPECT_EQ(FW_REFUSED_DNS, stats.reasons);
+}
+
+TEST_F(FirewallBpfTest, DnsRuleBlocksTheAppsOwnDnsOnly) {
+    setRules(FW_RULE_BLOCK_DNS);
+    EXPECT_EQ(EPERM, sendMulticast(53, dnsQuery("example.test")));
+    EXPECT_EQ(EPERM, sendMulticast(853));
+    EXPECT_EQ(0, sendMulticast(kPort));
+}
+
+// netd's checks for the resolver, as the firewall's library makes them.
+TEST_F(FirewallBpfTest, LookupsFollowTheAppsRulesThenItsUsers) {
+    setRules(0);
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+    setUserFlags(FW_SCOPE_DOMAINS);
+    putDomain(kUserScope, "blocked.test", FW_DOMAIN_BLOCK | FW_DOMAIN_BLOCK_SUBDOMAINS);
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "www.blocked.test"));
+
+    setRules(FW_SCOPE_DOMAINS | FW_SCOPE_LEARNED);
+    putDomain(kTestUid, "www.blocked.test", FW_DOMAIN_ALLOW);
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "www.blocked.test"));
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "mail.blocked.test"));
+
+    setRules(FW_RULE_BLOCK_ALL | FW_SCOPE_DOMAINS | FW_SCOPE_LEARNED);
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "www.blocked.test"));
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+    setNetwork(FW_RULE_BLOCK_CELLULAR);
+    setRules(FW_RULE_BLOCK_CELLULAR);
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+}
+
+TEST_F(FirewallBpfTest, KnownDohServersCantBeLookedUpUnderDomainRules) {
+    putDomain(FW_DOH_SCOPE, "doh.test", FW_DOMAIN_BLOCK);
+    setRules(0);
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "doh.test"));
+    setRules(FW_SCOPE_DOMAINS);
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "doh.test"));
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+    setRules(0);
+    setUserFlags(FW_SCOPE_DOMAINS);
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "doh.test"));
 }
 
 TEST_F(FirewallBpfTest, MeteredAndRoamingSwitchesFollowTheNetwork) {
@@ -313,6 +544,73 @@ TEST_F(FirewallBpfTest, MeteredAndRoamingSwitchesFollowTheNetwork) {
     setRules(FW_RULE_BLOCK_ROAMING);
     EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "198.51.100.1"));
     EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+}
+
+TEST_F(FirewallBpfTest, RulesLimitedToNetworksApplyOnlyThere) {
+    // Limit 1 is mobile data only, limit 2 every network but roaming ones.
+    fw_limits limits = {};
+    limits.only[1] = FW_RULE_BLOCK_CELLULAR;
+    limits.except[2] = FW_RULE_BLOCK_ROAMING;
+    put("scope_limits", kUserScope, limits);
+    setRules(0);
+    setUserFlags(FW_SCOPE_IP_BLOCKS | FW_SCOPE_PORT_BLOCKS | FW_SCOPE_DOMAINS | FW_SCOPE_LIMITS);
+    putMulticast("ip6_block", kUserScope, 1u << 1);
+    putPort(kUserScope, 10, IPPROTO_UDP, FW_PORT_BLOCK << (2 * 2));
+    putDomain(kUserScope, "ads.test",
+              uint64_t{FW_DOMAIN_BLOCK | FW_DOMAIN_BLOCK_SUBDOMAINS} << (4 * 2));
+
+    setIfaceNetwork(FW_RULE_BLOCK_WIFI | FW_RULE_BLOCK_ROAMING);
+    EXPECT_EQ(0, sendMulticast(kPort));
+    EXPECT_EQ(0, sendMulticast(10));
+    setIfaceNetwork(FW_RULE_BLOCK_WIFI);
+    EXPECT_EQ(0, sendMulticast(kPort));
+    EXPECT_EQ(EPERM, sendMulticast(10));
+    setIfaceNetwork(FW_RULE_BLOCK_CELLULAR);
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+
+    setNetwork(FW_RULE_BLOCK_WIFI | FW_RULE_BLOCK_ROAMING);
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "www.ads.test"));
+    setNetwork(FW_RULE_BLOCK_WIFI);
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "www.ads.test"));
+    setNetwork(FW_RULE_BLOCK_CELLULAR | FW_RULE_BLOCK_METERED);
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "www.ads.test"));
+}
+
+TEST_F(FirewallBpfTest, LearnedAnswersKeepTheLimitsOfTheirAllowRule) {
+    fw_limits limits = {};
+    limits.only[1] = FW_RULE_BLOCK_WIFI;
+    put("scope_limits", kTestUid, limits);
+    setRules(FW_RULE_BLOCK_ALL | FW_SCOPE_DOMAINS | FW_SCOPE_LEARNED | FW_SCOPE_LIMITS);
+    putDomain(kTestUid, "allowed.test", uint64_t{FW_DOMAIN_ALLOW} << 4);
+    in6_addr allowed = ipv4Mapped("203.0.113.9");
+    fw_learned_key key = {.scope = kTestUid};
+    memcpy(key.addr, &allowed, sizeof(key.addr));
+    forget("learned", key);
+    learnAnswer(kTestUid, "allowed.test", &allowed, 1);
+    uint32_t learned = 0;
+    ASSERT_EQ(0, findMapEntry(mMaps["learned"], &key, &learned));
+    EXPECT_EQ(1u << 1, learned);
+
+    setNetwork(FW_RULE_BLOCK_CELLULAR);
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
+    setNetwork(FW_RULE_BLOCK_WIFI);
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
+}
+
+TEST_F(FirewallBpfTest, AnswersToAllowedNamesAreLearnedBeforeTheAppConnects) {
+    setRules(FW_RULE_BLOCK_ALL | FW_SCOPE_DOMAINS | FW_SCOPE_LEARNED);
+    putDomain(kTestUid, "allowed.test", FW_DOMAIN_ALLOW | FW_DOMAIN_ALLOW_SUBDOMAINS);
+    in6_addr allowed = ipv4Mapped("203.0.113.9"), other = ipv4Mapped("203.0.113.10");
+    for (const in6_addr& address : {allowed, other}) {
+        fw_learned_key key = {.scope = kTestUid};
+        memcpy(key.addr, &address, sizeof(key.addr));
+        forget("learned", key);
+    }
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
+    learnAnswer(kTestUid, "www.allowed.test", &allowed, 1);
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
+    learnAnswer(kTestUid, "other.test", &other, 1);
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.10"));
 }
 
 }  // namespace

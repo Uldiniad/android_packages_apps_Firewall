@@ -86,7 +86,7 @@ static __always_inline __u32 vpn_net_for_uid(__u32 uid) {
 }
 
 // The helpers below are global functions, which the verifier checks once on their own instead of
-// at every call that inlines them.
+// at every rule lookup that inlines them.
 __u64 fw_socket_network(__u32 mark, __u32 owner_uid);
 // The network the socket goes out on, by netd's mark or the VPN the owner is under.
 __attribute__((noinline)) __u64 fw_socket_network(__u32 mark, __u32 owner_uid) {
@@ -100,8 +100,8 @@ __attribute__((noinline)) __u64 fw_socket_network(__u32 mark, __u32 owner_uid) {
     return net ? *net : 0;
 }
 
-// Where a packet or connection goes. Its network is looked up only where a switch needs it, so
-// the verifier doesn't carry it down every path, which it can't afford.
+// Where a packet or connection goes. Its network is looked up only where a switch or a rule's
+// limits need it, so the verifier doesn't carry it down every path, which it can't afford.
 struct fw_path {
     __u32 ifindex;
     __u32 mark;
@@ -167,6 +167,7 @@ static __always_inline bool parse_l4(struct __sk_buff* skb, struct l4_info* info
     return true;
 }
 
+#include "target_rules.h"
 #include "socket_tags.h"
 
 // 127.0.0.0/8 and ::1, with IPv4-mapped addresses taken as IPv4.
@@ -187,18 +188,51 @@ static __always_inline bool cut_off(__u8 direction, __u32 rules, const struct l4
 #include "refusal_counts.h"
 
 // Whether a packet out is dropped, and the counter it's dropped under.
-static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 rules,
+static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 rules,
                                         const struct fw_path* path, struct l4_info* info,
-                                        __u32* counter) {
+                                        bool* parsed, __u32* counter) {
     bool blocked_all = rules & FW_RULE_BLOCK_ALL;
     // Apps kept off loopback are blocked on it as on a network.
     bool blocked_here = path->ifindex == 1 || network_blocked(rules, path);
     *counter = blocked_all ? FW_C_EGRESS_DROP_ALL : FW_C_EGRESS_DROP_TRANSPORT;
-    if (!blocked_all && !blocked_here) return false;
-    parse_l4(skb, info, true);
-    return true;
+    *parsed = parse_l4(skb, info, true);
+    if ((blocked_all || blocked_here) && !(rules & FW_SCOPE_ALLOWS)) return true;
+    if (!*parsed) return blocked_all || blocked_here;
+    if ((rules & FW_SCOPE_ALLOWS) && scope_allows(uid, rules, info, path)) {
+        count(FW_C_ALLOWED_BY_RULE);
+        return false;
+    }
+    if (blocked_all || blocked_here) return true;
+
+    // An app's own DNS, plain or over TLS or QUIC. With domain rules, the app looks names up
+    // through Android's resolver instead, which checks them. Known DNS-over-HTTPS servers count
+    // too, looked up only for the apps that rule applies to.
+    bool dns = info->port == 53 || info->port == 853;
+    if (dns) count(FW_C_DNS_SEEN);
+    if ((rules & (FW_RULE_BLOCK_DNS | FW_SCOPE_DOMAINS)) &&
+        (dns || listed(&ip4_block, &ip6_block, FW_DOH_SCOPE, 0, info, path))) {
+        *counter = (rules & FW_RULE_BLOCK_DNS) ? FW_C_EGRESS_DROP_DNS : FW_C_EGRESS_DROP_DOMAIN;
+        return true;
+    }
+    if ((rules & FW_SCOPE_BLOCKS) && scope_blocks(uid, rules, info, path, counter)) return true;
+
+    __u32 user = uid / AID_USER_OFFSET;
+    __u32 user_scope = FW_USER_SCOPE | user;
+    __u32 uflags = user_flags_of(user);
+    if ((uflags & FW_SCOPE_ALLOWS) && scope_allows(user_scope, uflags, info, path)) {
+        count(FW_C_ALLOWED_BY_RULE);
+        return false;
+    }
+    if ((uflags & FW_SCOPE_DOMAINS) &&
+        (dns || listed(&ip4_block, &ip6_block, FW_DOH_SCOPE, 0, info, path))) {
+        *counter = FW_C_EGRESS_DROP_DOMAIN;
+        return true;
+    }
+    return (uflags & FW_SCOPE_BLOCKS) && scope_blocks(user_scope, uflags, info, path, counter);
 }
 
+// An app's allow rules win over its blocks, and its rules over its user's. Allow rules for
+// domains reach blocked apps through the addresses learned from the lookups they let through.
 SEC("cgroup_skb/egress")
 int egress(struct __sk_buff* skb) {
     __u32 uid = tagged_uid(bpf_get_socket_cookie(skb), bpf_get_socket_uid(skb));
@@ -211,10 +245,11 @@ int egress(struct __sk_buff* skb) {
     if (ifindex == 1 && !(rules & FW_RULE_NO_LOOPBACK)) return 1;
     struct fw_path path = {.ifindex = ifindex};
     struct l4_info info = {};
+    bool parsed = false;
     __u32 counter;
-    if (!egress_drop(skb, rules, &path, &info, &counter)) return 1;
+    if (!egress_drop(skb, uid, rules, &path, &info, &parsed, &counter)) return 1;
     count(counter);
-    note_refusal(uid, rules, FW_REFUSAL_OUT, &info, &path);
+    note_refusal(uid, rules, FW_REFUSAL_OUT, &info, parsed, &path);
     return 0;
 }
 
@@ -229,9 +264,11 @@ int ingress(struct __sk_buff* skb) {
     struct fw_path path = {.ifindex = ifindex};
     if (!(rules & FW_RULE_BLOCK_ALL) && !network_blocked(rules, &path)) return 1;
     struct l4_info info = {};
-    parse_l4(skb, &info, false);
+    bool parsed = parse_l4(skb, &info, false);
+    // A blocked app still hears back from what its allow rules let it reach.
+    if ((rules & FW_SCOPE_ALLOWS) && parsed && scope_allows(uid, rules, &info, &path)) return 1;
     count(FW_C_INGRESS_DROP);
-    note_refusal(uid, rules, FW_REFUSAL_IN, &info, &path);
+    note_refusal(uid, rules, FW_REFUSAL_IN, &info, parsed, &path);
     return 0;
 }
 
@@ -266,12 +303,26 @@ static __always_inline int connect_verdict(struct bpf_sock_addr* ctx, bool v6) {
     // address families work. What it sends still goes through egress.
     if (info.protocol == IPPROTO_UDP && !info.port) return 1;
     struct fw_path path = {.mark = ctx->sk->mark, .owner_uid = owner_uid, .connect = true};
-    // Loopback isn't any network's, so it is refused only to apps kept off it.
+    if ((rules & FW_SCOPE_ALLOWS) && scope_allows(uid, rules, &info, &path)) return 1;
+    // Loopback isn't any network's: only the rules for addresses and ports apply to it, unless
+    // the app is kept off it.
     bool off = cut_off(FW_REFUSAL_CONNECT, rules, &info, &path);
-    bool blocked = off && ((rules & FW_RULE_BLOCK_ALL) || network_blocked(rules, &path));
+    bool blocked =
+            (off && ((rules & FW_RULE_BLOCK_ALL) || network_blocked(rules, &path))) ||
+            ((rules & FW_SCOPE_BLOCKS) && scope_blocks(uid, rules, &info, &path, NULL));
+    if (!blocked) {
+        __u32 user = uid / AID_USER_OFFSET;
+        __u32 user_scope = FW_USER_SCOPE | user;
+        __u32 uflags = user_flags_of(user);
+        if ((uflags & FW_SCOPE_ALLOWS) && scope_allows(user_scope, uflags, &info, &path)) {
+            return 1;
+        }
+        blocked =
+                (uflags & FW_SCOPE_BLOCKS) && scope_blocks(user_scope, uflags, &info, &path, NULL);
+    }
     if (!blocked) return 1;
     count(FW_C_CONNECT_DENY);
-    note_refusal(uid, rules, FW_REFUSAL_CONNECT, &info, &path);
+    note_refusal(uid, rules, FW_REFUSAL_CONNECT, &info, true, &path);
     return 0;
 }
 

@@ -15,8 +15,8 @@ namespace android::firewall {
 // Private DNS encrypts the lookup.
 bool allowsLookup(uid_t uid, unsigned netId, const char* name);
 
-// The addresses of an answer to the app's lookup of the name, which the resolver hands over
-// before the app gets them.
+// Lets the app reach the addresses of an answer to a name its allow rules cover. The resolver
+// hands over each answer before the app gets it, so the app's first connection already passes.
 void learnAnswer(uid_t uid, const char* name, const in6_addr* addresses, size_t count);
 
 }  // namespace android::firewall

@@ -87,6 +87,11 @@ class FirewallAppTest {
         firewall.setAppRules(testPackage, userId, 0)
         firewall.setPause(testPackage, userId, false, 0)
         firewall.setSchedule(testPackage, userId, 0, 0, 0)
+        firewall.removeRules(
+            (firewall.getRules(userId, testPackage) + firewall.getRules(userId, null))
+                .filter { it.value in TEST_VALUES }
+                .toTypedArray()
+        )
         firewall.setNewInstallsBlocked(userId, newAppsBlocked)
     }
 
@@ -119,6 +124,23 @@ class FirewallAppTest {
         find(By.desc(description), "\"$description\" button")
 
     private fun editText() = find(By.clazz(EDIT_TEXT), "text field")
+
+    /** The add page's field for the rules' values, labeled with their kind, among dropdowns. */
+    private fun valuesField(kind: String = "kind_domains") =
+        find(By.clazz(EDIT_TEXT).hasDescendant(By.text(text(kind))), "field for ${text(kind)}")
+
+    /** Picks an option of the add page's dropdown that shows [shown]. */
+    private fun choose(shown: String, option: String) {
+        find(text(shown)).click()
+        find(text(option)).click()
+    }
+
+    /** Checks a network in the add page's list of chosen networks, then closes the list. */
+    private fun chooseNetwork(network: String) {
+        find(text("networks_chosen")).click()
+        find(text(network)).click()
+        device.pressBack()
+    }
 
     /**
      * Scrolls the page down until the object shows, as AOSP Settings' UI tests do: Compose sends no
@@ -176,6 +198,15 @@ class FirewallAppTest {
             ThrowingSupplier { call() },
             Manifest.permission.INTERACT_ACROSS_USERS_FULL,
         )
+
+    private fun rule(packageName: String?, kind: Int, value: String) =
+        FirewallRule().also {
+            it.packageName = packageName
+            it.userId = userId
+            it.kind = kind
+            it.value = value
+            it.subdomains = true
+        }
 
     @Test
     fun homePageSearchFindsAnAppWithWhatBlocksIt() {
@@ -245,6 +276,13 @@ class FirewallAppTest {
         }
 
     @Test
+    fun homePageOpensTheRulesForAllApps() =
+        onPage("AppList") {
+            find(text("all_apps_rules")).click()
+            find(text("kind_addresses"))
+        }
+
+    @Test
     fun networkAccessSwitchBlocksTheAppEverywhere() =
         onPage("AppRules/$testPackage/$userId") {
             find(text("allow_network_access")).click()
@@ -298,6 +336,38 @@ class FirewallAppTest {
         }
 
     @Test
+    fun appPageAddsAnAllowRuleForTheApp() =
+        onPage("AppRules/$testPackage/$userId") {
+            scrollTo(text("add_rule")).click()
+            choose("action_block", "action_allow")
+            valuesField().text = DOMAIN
+            find(text("add")).click()
+            waitUntil {
+                firewall.getRules(userId, testPackage).any {
+                    it.value == DOMAIN && it.allow && it.kind == IFirewall.RULE_DOMAIN
+                }
+            }
+            // The page lists it with the others, removable from there.
+            find(DOMAIN)
+        }
+
+    @Test
+    fun removingARuleAsksFirst() {
+        firewall.addRules(arrayOf(rule(testPackage, IFirewall.RULE_DOMAIN, DOMAIN)))
+        onPage("AppRules/$testPackage/$userId") {
+            val remove = text("remove_rule_for", DOMAIN)
+            scrollTo(DOMAIN)
+            findDescribed(remove).click()
+            find(text("remove_rule_title", DOMAIN))
+            find(appResources.getString(android.R.string.cancel)).click()
+            assertTrue(firewall.getRules(userId, testPackage).any { it.value == DOMAIN })
+            findDescribed(remove).click()
+            find(text("remove")).click()
+            waitUntil { firewall.getRules(userId, testPackage).none { it.value == DOMAIN } }
+        }
+    }
+
+    @Test
     fun dataUsageRowOpensAndroidsDataPage() =
         onPage("AppRules/$testPackage/$userId") {
             scrollTo(text("data_usage")).click()
@@ -347,6 +417,159 @@ class FirewallAppTest {
             scrollTo(By.textContains(prefix), "shared uid footer")
         }
     }
+
+    @Test
+    fun rulesForAllAppsHaveATabPerKind() =
+        onPage("AllAppsRules/$userId") {
+            for ((tab, add) in RULE_TABS) {
+                find(text(tab)).click()
+                find(text(add))
+            }
+        }
+
+    @Test
+    fun linesThatAreNotDomainsComeBackToFix() =
+        onPage("AllAppsRules/$userId") {
+            find(text("kind_domains")).click()
+            find(text("add_domains")).click()
+            valuesField().text = "$DOMAIN\nnot a domain"
+            find(text("add")).click()
+            find(text("domains_invalid"))
+            assertEquals("not a domain", valuesField().text)
+            assertTrue(firewall.getRules(userId, null).any { it.value == DOMAIN && !it.allow })
+        }
+
+    @Test
+    fun addressPageTakesRangesAndRejectsTheRest() =
+        onPage("AllAppsRules/$userId") {
+            find(text("kind_addresses")).click()
+            find(text("add_addresses")).click()
+            valuesField("kind_addresses").text = "$ADDRESS\nnot an address"
+            find(text("add")).click()
+            find(text("addresses_invalid"))
+            assertEquals("not an address", valuesField("kind_addresses").text)
+            assertTrue(
+                firewall.getRules(userId, null).any {
+                    it.value == ADDRESS && it.kind == IFirewall.RULE_ADDRESS
+                }
+            )
+        }
+
+    @Test
+    fun portPageLimitsAPortToAProtocol() =
+        onPage("AllAppsRules/$userId") {
+            find(text("kind_ports")).click()
+            find(text("add_ports")).click()
+            valuesField("kind_ports").text = PORT
+            choose("protocol_both", "protocol_udp")
+            find(text("add")).click()
+            waitUntil {
+                firewall.getRules(userId, null).any {
+                    it.value == PORT && it.protocol == IFirewall.PROTOCOL_UDP
+                }
+            }
+            find(text("rule_blocked_udp"))
+        }
+
+    @Test
+    fun portRangesShowAsOneRule() {
+        firewall.addRules(arrayOf(rule(null, IFirewall.RULE_PORT, PORT_RANGE)))
+        onPage("AllAppsRules/$userId") {
+            find(text("kind_ports")).click()
+            find(text("ports_title", PORT_RANGE))
+        }
+    }
+
+    @Test
+    fun exactDomainRulesLeaveSubdomainsOut() =
+        onPage("AllAppsRules/$userId") {
+            find(text("kind_domains")).click()
+            find(text("add_domains")).click()
+            valuesField().text = DOMAIN
+            find(text("include_subdomains")).click()
+            find(text("add")).click()
+            waitUntil {
+                firewall.getRules(userId, null).any { it.value == DOMAIN && !it.subdomains }
+            }
+        }
+
+    @Test
+    fun rulesForAllAppsSearchFindsARule() {
+        firewall.addRules(
+            arrayOf(
+                rule(null, IFirewall.RULE_DOMAIN, DOMAIN),
+                rule(null, IFirewall.RULE_DOMAIN, OTHER_DOMAIN),
+            )
+        )
+        onPage("AllAppsRules/$userId") {
+            search("other.")
+            find(OTHER_DOMAIN)
+            assertTrue(device.wait(Until.gone(By.text(DOMAIN)), TIMEOUT))
+        }
+    }
+
+    @Test
+    fun aRuleForAllAppsCanBeLimitedToANetwork() =
+        onPage("AllAppsRules/$userId") {
+            find(text("kind_domains")).click()
+            find(text("add_domains")).click()
+            valuesField().text = DOMAIN
+            choose("networks_all", "networks_only")
+            chooseNetwork("network_wifi")
+            find(text("add")).click()
+            waitUntil {
+                firewall.getRules(userId, null).any {
+                    it.value == DOMAIN && it.networks.contentEquals(arrayOf("wifi")) &&
+                        !it.exceptNetworks
+                }
+            }
+            find(
+                text(
+                    "rule_only_networks",
+                    text("rule_blocked_subdomains"),
+                    text("networks_list_wifi"),
+                )
+            )
+        }
+
+    @Test
+    fun aRuleForAllAppsCanApplyEverywhereButANetwork() =
+        onPage("AllAppsRules/$userId") {
+            find(text("kind_domains")).click()
+            find(text("add_domains")).click()
+            valuesField().text = DOMAIN
+            choose("networks_all", "networks_except")
+            chooseNetwork("network_vpn")
+            find(text("add")).click()
+            waitUntil {
+                firewall.getRules(userId, null).any {
+                    it.value == DOMAIN && it.networks.contentEquals(arrayOf("vpn")) &&
+                        it.exceptNetworks
+                }
+            }
+            find(
+                text(
+                    "rule_except_networks",
+                    text("rule_blocked_subdomains"),
+                    text("networks_list_vpn"),
+                )
+            )
+        }
+
+    @Test
+    fun theAddRulesPageKeepsItsTextWhenTheScreenTurns() =
+        onPage("AllAppsRules/$userId") {
+            find(text("kind_domains")).click()
+            find(text("add_domains")).click()
+            valuesField().text = DOMAIN
+            try {
+                device.setOrientationLeft()
+                assertEquals(DOMAIN, valuesField().text)
+            } finally {
+                device.setOrientationNatural()
+                device.unfreezeRotation()
+            }
+        }
 
     @Test
     fun settingsShowsTheFirewallUnderNetworkAndInternet() {
@@ -512,7 +735,12 @@ class FirewallAppTest {
         const val NO_INTERNET = "org.lineageos.firewall.hostside.nointernet"
         // Generous: the first launch on a freshly flashed phone runs uncompiled code.
         const val TIMEOUT = 20_000L
+        const val DOMAIN = "example.test"
+        const val OTHER_DOMAIN = "other.example.test"
         const val ADDRESS = "198.51.100.0/24"
+        const val PORT = "8443"
+        const val PORT_RANGE = "6881-6889"
+        val TEST_VALUES = setOf(DOMAIN, OTHER_DOMAIN, ADDRESS, PORT, PORT_RANGE)
         const val EDIT_TEXT = "android.widget.EditText"
         const val TEXT_VIEW = "android.widget.TextView"
         const val ACTION_APP_BLOCKED = "org.lineageos.firewall.action.APP_BLOCKED"
@@ -525,6 +753,12 @@ class FirewallAppTest {
                 "network_other" to IFirewall.BLOCK_OTHER,
                 "network_metered" to IFirewall.BLOCK_METERED,
                 "network_roaming" to IFirewall.BLOCK_ROAMING,
+            )
+        val RULE_TABS =
+            listOf(
+                "kind_domains" to "add_domains",
+                "kind_addresses" to "add_addresses",
+                "kind_ports" to "add_ports",
             )
     }
 }

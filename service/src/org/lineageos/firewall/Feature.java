@@ -68,6 +68,9 @@ abstract class Feature {
     /** Writes the maps this feature fills on its own, after the start cleared them. */
     void onMapsClearedLocked() {}
 
+    /** After the start's first sync of apps and the OEM deny chain. */
+    void onStartSyncedLocked() {}
+
     /** Once the activity manager is ready: registers for what the feature follows. */
     void onBootPhase() {}
 
@@ -109,6 +112,14 @@ abstract class Feature {
      * for them, before the uid map gets the bits that enable those entries.
      */
     void writeAppsLocked(Map<Integer, Integer> wanted) {}
+
+    /** Writes the user's rules for all of their apps. */
+    void writeUserLocked(int userId) {}
+
+    /** Whether the uid's rules let some traffic through even when it has no network left. */
+    boolean letsThroughLocked(int rules) {
+        return false;
+    }
 
     /** Fills in what the feature knows of the app for the firewall app. */
     void fillAppRuleLocked(Pair<String, Integer> app, AppRule rule) {}

@@ -11,6 +11,7 @@ import static com.android.compatibility.common.util.SystemUtil.runShellCommand;
 
 import android.content.Context;
 import android.net.ConnectivityManager;
+import android.net.DnsResolver;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Process;
@@ -34,6 +35,12 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.UnknownHostException;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** Drives the firewall for this app through its shell command, and probes the network. */
 final class Firewall {
@@ -52,6 +59,41 @@ final class Firewall {
 
     static void setRules(String rules) {
         runShellCommand("cmd firewall set-app " + PACKAGE + " " + rules + " --user " + userId());
+    }
+
+    /** Waits until the host resolves, as DNS comes up; nothing reports that to an app. */
+    static void awaitLookup(String host, long timeoutMs) {
+        PollingCheck.waitFor(timeoutMs, () -> {
+            try {
+                InetAddress.getByName(host);
+                return true;
+            } catch (UnknownHostException e) {
+                return false;
+            }
+        }, "No answer for " + host);
+    }
+
+    /** Whether Android's resolver answers for the host in time, asking past its cache. */
+    static boolean looksUp(String host, long timeoutMs) throws InterruptedException {
+        CompletableFuture<Boolean> answered = new CompletableFuture<>();
+        DnsResolver.getInstance().query(null, host, DnsResolver.TYPE_A,
+                DnsResolver.FLAG_NO_CACHE_LOOKUP, Runnable::run, null,
+                new DnsResolver.Callback<List<InetAddress>>() {
+                    @Override
+                    public void onAnswer(List<InetAddress> answer, int rcode) {
+                        answered.complete(!answer.isEmpty());
+                    }
+
+                    @Override
+                    public void onError(DnsResolver.DnsException error) {
+                        answered.complete(false);
+                    }
+                });
+        try {
+            return answered.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (ExecutionException | TimeoutException e) {
+            return false;
+        }
     }
 
     /** Whether Connectivity reports this app's default network as blocked, or not, in time. */

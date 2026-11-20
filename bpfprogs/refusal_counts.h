@@ -21,8 +21,8 @@ struct {
 } refusal_stats SEC(".maps");
 
 // Every rule that refuses the far end, worked out again only when a refusal is reported.
-static __always_inline __u32 refusal_reasons(__u32 rules, __u8 direction,
-                                             const struct l4_info* info,
+static __always_inline __u32 refusal_reasons(__u32 uid, __u32 rules, __u8 direction,
+                                             const struct l4_info* info, bool parsed,
                                              const struct fw_path* path) {
     __u32 reasons = 0;
     if (cut_off(direction, rules, info, path)) {
@@ -33,12 +33,35 @@ static __always_inline __u32 refusal_reasons(__u32 rules, __u8 direction,
             reasons |= FW_REFUSED_NETWORK;
         }
     }
+    if (!parsed) return reasons;
+    __u32 user = uid / AID_USER_OFFSET;
+    __u32 user_scope = FW_USER_SCOPE | user;
+    __u32 uflags = user_flags_of(user);
+    if ((rules & FW_SCOPE_IP_BLOCKS) && listed(&ip4_block, &ip6_block, uid, rules, info, path)) {
+        reasons |= FW_REFUSED_ADDRESS;
+    }
+    if ((rules & FW_SCOPE_PORT_BLOCKS) && (port_bits(uid, rules, info, path) & FW_PORT_BLOCK)) {
+        reasons |= FW_REFUSED_PORT;
+    }
+    if ((uflags & FW_SCOPE_IP_BLOCKS) &&
+        listed(&ip4_block, &ip6_block, user_scope, uflags, info, path)) {
+        reasons |= FW_REFUSED_USER_ADDRESS;
+    }
+    if ((uflags & FW_SCOPE_PORT_BLOCKS) &&
+        (port_bits(user_scope, uflags, info, path) & FW_PORT_BLOCK)) {
+        reasons |= FW_REFUSED_USER_PORT;
+    }
+    if (direction != FW_REFUSAL_OUT) return reasons;
+    bool dns = info->port == 53 || info->port == 853 ||
+               listed(&ip4_block, &ip6_block, FW_DOH_SCOPE, 0, info, path);
+    if (dns && (rules & (FW_RULE_BLOCK_DNS | FW_SCOPE_DOMAINS))) reasons |= FW_REFUSED_DNS;
+    if (dns && (uflags & FW_SCOPE_DOMAINS)) reasons |= FW_REFUSED_USER_DNS;
     return reasons;
 }
 
 // Counts a refusal, and reports it the first time and then at most once a minute.
 static __always_inline void note_refusal(__u32 uid, __u32 rules, __u8 direction,
-                                         const struct l4_info* info,
+                                         const struct l4_info* info, bool parsed,
                                          const struct fw_path* path) {
     struct fw_refusal_key key = {.uid = uid, .direction = direction, .protocol = info->protocol,
                                  .v6 = info->v6, .port = info->port};
@@ -55,7 +78,7 @@ static __always_inline void note_refusal(__u32 uid, __u32 rules, __u8 direction,
     stats->last_ns = now;
     if (stats->reported_ns && now - stats->reported_ns < FW_NS_PER_MINUTE) return;
     stats->reported_ns = now;
-    stats->reasons = refusal_reasons(rules, direction, info, path);
+    stats->reasons = refusal_reasons(uid, rules, direction, info, parsed, path);
     // If the buffer is full, the count stays here for the service to collect.
     struct fw_refusal* event = bpf_ringbuf_reserve(&refusals, sizeof(*event), 0);
     if (!event) return;

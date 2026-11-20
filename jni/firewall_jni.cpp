@@ -42,6 +42,7 @@ jboolean nativeInit(JNIEnv*, jclass) {
         return false;
     }
     if (!initRefusalCounts()) return false;
+    if (!initTargetRules()) return false;
     return gMaps.counters.ok();
 }
 
@@ -84,6 +85,7 @@ void nativeClearRules(JNIEnv*, jclass) {
     clear(gMaps.uidRules);
     clear(gMaps.ifaceTransport);
     clear(gMaps.netTransport);
+    clearTargetRules();
 }
 
 jint nativeSetUid(JNIEnv*, jclass, jint uid, jint rules) {
@@ -152,5 +154,6 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
         return JNI_ERR;
     }
     if (firewall::registerRefusalCounts(env, cls)) return JNI_ERR;
+    if (firewall::registerTargetRules(env, cls)) return JNI_ERR;
     return JNI_VERSION_1_6;
 }

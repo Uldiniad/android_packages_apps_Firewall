@@ -88,6 +88,14 @@ java_library {
     visibility: ["//packages/apps/Firewall:__subpackages__"],
 }
 
+// The DNS-over-HTTPS servers apps under domain rules may not use.
+prebuilt_etc {
+    name: "firewall-doh-servers",
+    src: "doh-servers.txt",
+    filename_from_src: true,
+    sub_dir: "firewall",
+}
+
 java_library {
     name: "firewall-service",
     installable: true,
@@ -96,6 +104,7 @@ java_library {
     jarjar_rules: "jarjar-rules.txt",
     permitted_packages: ["org.lineageos.firewall"],
     required: [
+        "firewall-doh-servers",
         "firewall.bpf",
         "libfirewall_jni",
     ],

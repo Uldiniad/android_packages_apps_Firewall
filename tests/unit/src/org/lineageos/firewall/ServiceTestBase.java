@@ -45,6 +45,20 @@ public abstract class ServiceTestBase {
     final TestClock mClock = new TestClock(monday(10, 0));
     File mDir;
 
+    static FirewallRule rule(String packageName, boolean allow, int kind, String value) {
+        FirewallRule rule = new FirewallRule();
+        rule.packageName = packageName;
+        rule.allow = allow;
+        rule.kind = kind;
+        rule.value = value;
+        rule.subdomains = true;
+        return rule;
+    }
+
+    static FirewallRule[] rules(FirewallRule... rules) {
+        return rules;
+    }
+
     /** A clock the tests move, as time can't be waited out here. */
     static final class TestClock extends Clock {
         Instant now;

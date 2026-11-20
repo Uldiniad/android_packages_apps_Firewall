@@ -25,6 +25,10 @@ import org.junit.Rule;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -37,7 +41,38 @@ public abstract class ServiceTestBase {
 
     final ConnectivityManager mConnectivity = mock(ConnectivityManager.class);
     final FakeMaps mMaps = new FakeMaps();
+    final TestClock mClock = new TestClock(monday(10, 0));
     File mDir;
+
+    /** A clock the tests move, as time can't be waited out here. */
+    static final class TestClock extends Clock {
+        Instant now;
+
+        TestClock(Instant now) {
+            this.now = now;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.systemDefault();
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
+    }
+
+    /** Monday 16 November 2026 at the time, in the device's time zone. */
+    static Instant monday(int hour, int minute) {
+        return LocalDate.of(2026, 11, 16).atTime(hour, minute).atZone(ZoneId.systemDefault())
+                .toInstant();
+    }
 
     int blockAll() {
         return mMaps.uids.get(UID) & FirewallMaps.BLOCK_ALL;
@@ -60,14 +95,14 @@ public abstract class ServiceTestBase {
     }
 
     FirewallService start() {
-        FirewallService service = new FirewallService(context(), mMaps, mDir);
+        FirewallService service = new FirewallService(context(), mMaps, mDir, mClock);
         service.init();
         return service;
     }
 
     /** A service over the test's directory that isn't started, to set up or read its store. */
     FirewallService unstarted() {
-        return new FirewallService(context(), new FakeMaps(), mDir);
+        return new FirewallService(context(), new FakeMaps(), mDir, mClock);
     }
 
     int noLoopback() {
@@ -90,7 +125,7 @@ public abstract class ServiceTestBase {
         };
         service.registerListenerInternal(listener);
         File copy = Files.createTempDirectory(mDir.toPath(), "saved").toFile();
-        FirewallService reader = new FirewallService(context(), new FakeMaps(), copy);
+        FirewallService reader = new FirewallService(context(), new FakeMaps(), copy, mClock);
         try {
             long deadline = SystemClock.uptimeMillis() + 5000;
             while (true) {

@@ -9,7 +9,9 @@ import static org.junit.Assert.assertTrue;
 
 import android.os.SystemClock;
 
+import java.io.FileDescriptor;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /** Keeps map writes in memory; a value of 0 deletes, as in the native maps. */
@@ -60,4 +62,7 @@ final class FakeMaps implements Maps {
         }
     }
     @Override public long[] counters() { return new long[0]; }
+    @Override public FileDescriptor refusalsFd() { return null; }
+    @Override public List<Refusal> consumeRefusals() { return List.of(); }
+    @Override public List<Refusal> refusalStats() { return List.of(); }
 }

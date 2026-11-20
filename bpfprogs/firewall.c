@@ -5,10 +5,14 @@
 
 #include <android_bpf_defs.h>
 #include <linux/in.h>
+#include <linux/ip.h>
+#include <linux/ipv6.h>
 // Bionic's copy of the header names the struct __kernel_udphdr, as Connectivity also works around.
 #define __kernel_udphdr udphdr
+#include <linux/udp.h>
 #include <private/android_filesystem_config.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #include "firewall.h"
 
@@ -124,6 +128,45 @@ struct l4_info {
     __u32 addr[4];
 };
 
+static __always_inline bool parse_l4(struct __sk_buff* skb, struct l4_info* info, bool egress) {
+    __u8 first;
+    if (bpf_skb_load_bytes(skb, 0, &first, 1)) return false;
+    __u32 l4_offset;
+    if ((first >> 4) == 4) {
+        __u8 protocol;
+        __u32 addr = egress ? offsetof(struct iphdr, daddr) : offsetof(struct iphdr, saddr);
+        if (bpf_skb_load_bytes(skb, offsetof(struct iphdr, protocol), &protocol, 1) ||
+            bpf_skb_load_bytes(skb, addr, &info->addr[0], 4)) {
+            return false;
+        }
+        info->protocol = protocol;
+        info->v6 = false;
+        l4_offset = (first & 0x0f) * 4;
+    } else if ((first >> 4) == 6) {
+        __u8 next_header;
+        __u32 addr = egress ? offsetof(struct ipv6hdr, daddr) : offsetof(struct ipv6hdr, saddr);
+        if (bpf_skb_load_bytes(skb, offsetof(struct ipv6hdr, nexthdr), &next_header, 1) ||
+            bpf_skb_load_bytes(skb, addr, info->addr, 16)) {
+            return false;
+        }
+        info->protocol = next_header;
+        info->v6 = true;
+        l4_offset = sizeof(struct ipv6hdr);
+    } else {
+        return false;
+    }
+    info->l4_offset = l4_offset;
+    info->port = 0;
+    if (info->protocol == IPPROTO_TCP || info->protocol == IPPROTO_UDP) {
+        // TCP puts its ports where UDP does.
+        __be16 port;
+        __u32 offset = egress ? offsetof(struct udphdr, dest) : offsetof(struct udphdr, source);
+        if (bpf_skb_load_bytes(skb, l4_offset + offset, &port, 2)) return false;
+        info->port = __builtin_bswap16(port);
+    }
+    return true;
+}
+
 #include "socket_tags.h"
 
 // 127.0.0.0/8 and ::1, with IPv4-mapped addresses taken as IPv4.
@@ -133,13 +176,27 @@ static __always_inline bool is_loopback(const struct l4_info* info) {
            info->addr[3] == __builtin_bswap32(1);
 }
 
+// Whether a packet or connection on loopback is refused as on a network: loopback is no network's,
+// unless the app is kept off it.
+static __always_inline bool cut_off(__u8 direction, __u32 rules, const struct l4_info* info,
+                                    const struct fw_path* path) {
+    bool loopback = direction == FW_REFUSAL_CONNECT ? is_loopback(info) : path->ifindex == 1;
+    return !loopback || (rules & FW_RULE_NO_LOOPBACK);
+}
+
+#include "refusal_counts.h"
+
 // Whether a packet out is dropped, and the counter it's dropped under.
-static __always_inline bool egress_drop(__u32 rules, const struct fw_path* path, __u32* counter) {
+static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 rules,
+                                        const struct fw_path* path, struct l4_info* info,
+                                        __u32* counter) {
     bool blocked_all = rules & FW_RULE_BLOCK_ALL;
     // Apps kept off loopback are blocked on it as on a network.
     bool blocked_here = path->ifindex == 1 || network_blocked(rules, path);
     *counter = blocked_all ? FW_C_EGRESS_DROP_ALL : FW_C_EGRESS_DROP_TRANSPORT;
-    return blocked_all || blocked_here;
+    if (!blocked_all && !blocked_here) return false;
+    parse_l4(skb, info, true);
+    return true;
 }
 
 SEC("cgroup_skb/egress")
@@ -153,9 +210,11 @@ int egress(struct __sk_buff* skb) {
     __u32 ifindex = skb->ifindex;
     if (ifindex == 1 && !(rules & FW_RULE_NO_LOOPBACK)) return 1;
     struct fw_path path = {.ifindex = ifindex};
+    struct l4_info info = {};
     __u32 counter;
-    if (!egress_drop(rules, &path, &counter)) return 1;
+    if (!egress_drop(skb, rules, &path, &info, &counter)) return 1;
     count(counter);
+    note_refusal(uid, rules, FW_REFUSAL_OUT, &info, &path);
     return 0;
 }
 
@@ -169,7 +228,10 @@ int ingress(struct __sk_buff* skb) {
     if (!subject || !rules) return 1;
     struct fw_path path = {.ifindex = ifindex};
     if (!(rules & FW_RULE_BLOCK_ALL) && !network_blocked(rules, &path)) return 1;
+    struct l4_info info = {};
+    parse_l4(skb, &info, false);
     count(FW_C_INGRESS_DROP);
+    note_refusal(uid, rules, FW_REFUSAL_IN, &info, &path);
     return 0;
 }
 
@@ -205,10 +267,11 @@ static __always_inline int connect_verdict(struct bpf_sock_addr* ctx, bool v6) {
     if (info.protocol == IPPROTO_UDP && !info.port) return 1;
     struct fw_path path = {.mark = ctx->sk->mark, .owner_uid = owner_uid, .connect = true};
     // Loopback isn't any network's, so it is refused only to apps kept off it.
-    bool off = !is_loopback(&info) || (rules & FW_RULE_NO_LOOPBACK);
+    bool off = cut_off(FW_REFUSAL_CONNECT, rules, &info, &path);
     bool blocked = off && ((rules & FW_RULE_BLOCK_ALL) || network_blocked(rules, &path));
     if (!blocked) return 1;
     count(FW_C_CONNECT_DENY);
+    note_refusal(uid, rules, FW_REFUSAL_CONNECT, &info, &path);
     return 0;
 }
 

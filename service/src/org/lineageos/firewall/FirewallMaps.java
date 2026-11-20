@@ -5,6 +5,7 @@
 
 package org.lineageos.firewall;
 
+import java.io.FileDescriptor;
 
 /** The firewall's BPF maps, which the BPF loader pins at boot. */
 final class FirewallMaps {
@@ -27,6 +28,16 @@ final class FirewallMaps {
             "ingress_drop",
             "connect_deny",
     };
+    /** Names of the FW_REFUSED_* bits, and of the FW_REFUSAL_* directions. */
+    static final String[] REFUSAL_REASONS = {
+            "all",
+            "network",
+    };
+    /** The FW_REFUSED_* bits, the most specific reason first. */
+    static final int[] REFUSAL_REASON_ORDER = {
+            1, 0,
+    };
+    static final String[] REFUSAL_DIRECTIONS = {"connect", "out", "in"};
 
 
     static {
@@ -43,4 +54,7 @@ final class FirewallMaps {
     static native int nativeSetNet(int netId, long net);
     static native void nativeSetVpnRanges(int[] starts, int[] ends, int[] netIds);
     static native long[] nativeCounters();
+    static native FileDescriptor nativeRefusalsFd();
+    static native long[] nativeConsumeRefusals();
+    static native long[] nativeRefusalStats();
 }

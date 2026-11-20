@@ -22,6 +22,7 @@ import org.junit.runner.RunWith;
 
 import java.io.File;
 import java.util.concurrent.Callable;
+import java.util.regex.Pattern;
 
 /** Runs the helper app's checks, and the ones that need the host: reboots and other users. */
 @RunWith(DeviceJUnit4ClassRunner.class)
@@ -144,6 +145,20 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     @After
     public void tearDown() throws Exception {
         setRules("none", 0);
+    }
+
+    @Test
+    public void refusalsAreListedWithTheAppReasonAndFarEnd() throws Exception {
+        // A far end no other test refuses: one far end's refusals are reported once a minute.
+        String address = "192.0.2.1";
+        setRules("all", 0);
+        assertTrue(runDeviceTests(options("HostChecks", "refused", 0)
+                .addInstrumentationArg("address", address)));
+        Pattern listed = Pattern.compile(
+                Pattern.quote(PACKAGE + " user 0, connect tcp " + address + ":443 refused ")
+                        + "(once|\\d+ times): all");
+        waitUntil("The refusal was not listed", 10_000,
+                () -> listed.matcher(shell("dumpsys firewall")).find());
     }
 
     @Test

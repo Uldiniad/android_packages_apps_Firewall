@@ -114,6 +114,9 @@ abstract class Feature {
     /** Writes the feature's part of the dump. */
     void dumpLocked(PrintWriter pw) {}
 
+    /** Writes the feature's part of the dump that reads the maps, after the counters. */
+    void dumpMaps(PrintWriter pw) {}
+
     /** Runs one of the feature's shell commands; null when the command isn't the feature's. */
     Integer onShellCommand(String cmd, FirewallShellCommand shell) throws IOException {
         return null;

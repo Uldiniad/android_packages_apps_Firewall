@@ -16,6 +16,9 @@
 #define FW_MARK_EXPLICIT (1u << 16)
 #define FW_MARK_PROTECTED_FROM_VPN (1u << 17)
 #define FW_VPN_RANGES 32
+#define FW_REFUSALS_SIZE 65536
+#define FW_REFUSAL_STATS_SIZE 8192
+#define FW_NS_PER_MINUTE (60ULL * 1000 * 1000 * 1000)
 
 #define FW_RULE_BLOCK_ALL (1u << 0)
 #define FW_RULE_BLOCK_WIFI (1u << 1)
@@ -36,6 +39,46 @@ enum fw_counter {
     FW_C_INGRESS_DROP,
     FW_C_CONNECT_DENY,
     FW_COUNTER_MAX,
+};
+
+// Why the BPF programs refused, as bits: every rule that matched.
+#define FW_REFUSED_ALL (1u << 0)
+#define FW_REFUSED_NETWORK (1u << 1)
+
+enum fw_refusal_direction {
+    FW_REFUSAL_CONNECT,
+    FW_REFUSAL_OUT,
+    FW_REFUSAL_IN,
+};
+
+// An app's refusals one way to or from one far end. The far end's address and port are as sent,
+// an IPv4 address in addr[0].
+struct fw_refusal_key {
+    __u32 uid;
+    __u8 direction;
+    __u8 protocol;
+    __u8 v6;
+    __u8 unused;
+    __u16 port;
+    __u16 unused2;
+    __u32 addr[4];
+};
+
+// Every refusal is counted; the reasons are worked out when it's reported. Times are boot times.
+struct fw_refusal_stats {
+    __u64 count;
+    __u64 first_ns;
+    __u64 last_ns;
+    __u64 reported_ns;
+    __u32 reasons;
+    __u32 unused;
+};
+
+// A report to the service: the first refusal of a key, then at most one a minute.
+struct fw_refusal {
+    struct fw_refusal_key key;
+    __u32 unused;
+    struct fw_refusal_stats stats;
 };
 
 struct fw_vpn_range {

@@ -102,6 +102,7 @@ public final class FirewallService extends SystemService {
                 new Schedules(this),
                 new LineageImport(this, storeDir),
                 new NewAppBlocking(this),
+                new TargetRules(this),
                 new RefusalCounts(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
@@ -183,6 +184,7 @@ public final class FirewallService extends SystemService {
                 for (Feature feature : mFeatures) feature.onMapsClearedLocked();
                 syncAppsLocked();
                 replaceOemDenyChainLocked();
+                for (Feature feature : mFeatures) feature.onStartSyncedLocked();
             }
         }
         Log.i(TAG, "Started: maps " + (mMapsReady ? "ready" : "missing") + ", programs "
@@ -322,7 +324,13 @@ public final class FirewallService extends SystemService {
     boolean forgetUserLocked(int userId) {
         boolean changed = mStore.apps.keySet().removeIf(app -> app.second == userId);
         for (Feature feature : mFeatures) changed |= feature.forgetUserLocked(userId);
+        if (mMapsReady) syncUserLocked(userId);
         return changed;
+    }
+
+    /** Writes the rules for all of the user's apps, entries before the flags that enable them. */
+    void syncUserLocked(int userId) {
+        for (Feature feature : mFeatures) feature.writeUserLocked(userId);
     }
 
     /**
@@ -380,9 +388,18 @@ public final class FirewallService extends SystemService {
         return (rules & FirewallMaps.BLOCK_ALL) != 0 || mNetworks.blocksEveryNetwork(uid, rules);
     }
 
+    /** Whether a feature lets some of the uid's traffic through though it has no network. */
+    private boolean letsThroughLocked(int rules) {
+        for (Feature feature : mFeatures) {
+            if (feature.letsThroughLocked(rules)) return true;
+        }
+        return false;
+    }
+
     private Set<Integer> blockedEverywhereLocked() {
         Set<Integer> uids = new HashSet<>();
         for (Map.Entry<Integer, Integer> rule : mUidRules.entrySet()) {
+            if (letsThroughLocked(rule.getValue())) continue;
             if (cutOffLocked(rule.getKey())) uids.add(rule.getKey());
         }
         return uids;
@@ -390,10 +407,12 @@ public final class FirewallService extends SystemService {
 
     /**
      * Whether the programs keep the app off loopback: an app with no network left that Connectivity
-     * can't keep to itself, as the kernel doesn't let Connectivity know whose socket it reaches.
+     * can't keep to itself, as allow rules keep it off the OEM deny chain, or as the kernel doesn't
+     * let Connectivity know whose socket it reaches.
      */
     private boolean noLoopbackLocked(int uid) {
-        return cutOffLocked(uid) && !mKnowsLoopbackReceivers;
+        return cutOffLocked(uid) && (!mKnowsLoopbackReceivers
+                || letsThroughLocked(mUidRules.get(uid)));
     }
 
     private void writeUidLocked(int uid) {
@@ -633,6 +652,24 @@ public final class FirewallService extends SystemService {
         public AppRule[] getAppRulesForUser(int userId) {
             enforceUser(userId);
             return getAppRulesForUserInternal(userId);
+        }
+
+        @Override
+        public FirewallRule[] getRules(int userId, String packageName) {
+            enforceUser(userId);
+            return feature(TargetRules.class).getRulesInternal(userId, packageName);
+        }
+
+        @Override
+        public int[] addRules(FirewallRule[] rules) {
+            for (FirewallRule rule : rules) enforceUser(rule.userId);
+            return callAsSystem(() -> feature(TargetRules.class).addRulesInternal(rules));
+        }
+
+        @Override
+        public void removeRules(FirewallRule[] rules) {
+            for (FirewallRule rule : rules) enforceUser(rule.userId);
+            runAsSystem(() -> feature(TargetRules.class).removeRulesInternal(rules));
         }
 
         @Override

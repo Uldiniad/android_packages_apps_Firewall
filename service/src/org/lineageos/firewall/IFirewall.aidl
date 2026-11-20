@@ -6,6 +6,7 @@
 package org.lineageos.firewall;
 
 import org.lineageos.firewall.AppRule;
+import org.lineageos.firewall.FirewallRule;
 import org.lineageos.firewall.IFirewallListener;
 
 interface IFirewall {
@@ -15,9 +16,18 @@ interface IFirewall {
     const int BLOCK_CELLULAR = 4;
     const int BLOCK_VPN = 8;
     const int BLOCK_OTHER = 16;
+    const int BLOCK_DNS = 32;
     /** Metered networks and roaming, whatever the transport; also while the app is in use. */
     const int BLOCK_METERED = 65536;
     const int BLOCK_ROAMING = 131072;
+
+    /** What a FirewallRule names. */
+    const int RULE_ADDRESS = 0;
+    const int RULE_DOMAIN = 1;
+    const int RULE_PORT = 2;
+    /** The protocols a port rule can be limited to; 0 is both. */
+    const int PROTOCOL_TCP = 6;
+    const int PROTOCOL_UDP = 17;
 
     void setAppRules(String packageName, int userId, int rules);
     /** Blocks the app, or allows it, until the time in milliseconds since the epoch; 0 ends it. */
@@ -30,6 +40,11 @@ interface IFirewall {
     int getAppRules(String packageName, int userId);
     AppRule[] getAppRulesForUser(int userId);
 
+    /** The rules of one app, or with a null packageName those for all of the user's apps. */
+    FirewallRule[] getRules(int userId, @nullable String packageName);
+    /** Adds the rules; returns the positions of those it rejected, like a malformed address. */
+    int[] addRules(in FirewallRule[] rules);
+    void removeRules(in FirewallRule[] rules);
     void registerListener(IFirewallListener listener);
     void unregisterListener(IFirewallListener listener);
     /** Whether the firewall's programs are loaded and on; while not, apps aren't firewalled. */

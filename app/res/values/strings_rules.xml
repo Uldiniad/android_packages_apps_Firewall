@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Summary of an app with rules for domains, addresses or ports, added to its network summary. -->
+    <string name="summary_with_rules"><xliff:g id="summary" example="Allowed">%1$s</xliff:g> · <xliff:g id="rules" example="2 rules">%2$s</xliff:g></string>
+    <plurals name="rule_count">
+        <item quantity="one"><xliff:g id="count" example="1">%d</xliff:g> rule</item>
+        <item quantity="other"><xliff:g id="count" example="2">%d</xliff:g> rules</item>
+    </plurals>
+
+    <!-- Title of an app's rules for domains, addresses and ports, and of the page with those for all of a user's apps. -->
+    <string name="rules_title">Rules</string>
+    <string name="add_rule">Add rule</string>
+    <string name="no_app_rules">No rules for this app</string>
+    <string name="all_apps_rules">Rules for all apps</string>
+    <string name="all_apps_rules_none">None</string>
+    <!-- How rules combine, under an app's rules. -->
+    <string name="rules_footer">Allow rules win over block rules, and this app\'s rules over the rules for all apps.</string>
+    <!-- Items of the summary list of the rules for all apps, such as "3 domains and 2 IP addresses". -->
+    <plurals name="domain_rule_count">
+        <item quantity="one"><xliff:g id="count" example="1">%d</xliff:g> domain</item>
+        <item quantity="other"><xliff:g id="count" example="2">%d</xliff:g> domains</item>
+    </plurals>
+    <plurals name="address_rule_count">
+        <item quantity="one"><xliff:g id="count" example="1">%d</xliff:g> IP address</item>
+        <item quantity="other"><xliff:g id="count" example="3">%d</xliff:g> IP addresses</item>
+    </plurals>
+    <plurals name="port_rule_count">
+        <item quantity="one"><xliff:g id="count" example="1">%d</xliff:g> port</item>
+        <item quantity="other"><xliff:g id="count" example="2">%d</xliff:g> ports</item>
+    </plurals>
+    <!-- What a rule names, as tabs and choices. -->
+    <string name="kind_domains">Domains</string>
+    <string name="kind_addresses">IP addresses</string>
+    <string name="kind_ports">Ports</string>
+    <string name="add_domains">Add domains</string>
+    <string name="add_addresses">Add IP addresses</string>
+    <string name="add_ports">Add ports</string>
+    <string name="no_domain_rules">No rules for domains</string>
+    <string name="no_address_rules">No rules for IP addresses</string>
+    <string name="no_port_rules">No rules for ports</string>
+    <string name="domains_hint">One per line, like example.com.</string>
+    <string name="addresses_hint">One per line. For a range, use CIDR notation, like 192.0.2.0/24.</string>
+    <string name="ports_hint">One per line, from 1 to 65535, or a range like 6881-6889.</string>
+    <string name="domains_invalid">These aren\'t domains. Fix them and try again.</string>
+    <string name="addresses_invalid">These aren\'t IP addresses. Fix them and try again.</string>
+    <string name="ports_invalid">These aren\'t ports. Fix them and try again.</string>
+    <!-- Whether a rule blocks or allows, chosen in the page that adds rules. -->
+    <string name="action_label">Action</string>
+    <string name="action_block">Block</string>
+    <string name="action_allow">Allow</string>
+    <!-- In the page that adds rules: what the rules name, a choice of the kinds above. -->
+    <string name="kind_label">Type</string>
+    <!-- For a domain rule: whether it also covers the domain's subdomains. -->
+    <string name="include_subdomains">Include subdomains</string>
+    <!-- For a port rule: the protocols it covers. -->
+    <string name="protocol_label">Protocol</string>
+    <string name="protocol_both">TCP and UDP</string>
+    <string name="protocol_tcp">TCP</string>
+    <string name="protocol_udp">UDP</string>
+    <string name="add">Add</string>
+    <!-- Title of a port rule, and of one for a range of ports. -->
+    <string name="port_title">Port <xliff:g id="port" example="443">%1$s</xliff:g></string>
+    <string name="ports_title">Ports <xliff:g id="ports" example="6881-6889">%1$s</xliff:g></string>
+    <!-- Summaries of a rule. -->
+    <string name="rule_blocked">Blocked</string>
+    <string name="rule_allowed">Allowed</string>
+    <string name="rule_blocked_subdomains">Blocked, with its subdomains</string>
+    <string name="rule_allowed_subdomains">Allowed, with its subdomains</string>
+    <string name="rule_blocked_tcp">Blocked for TCP</string>
+    <string name="rule_blocked_udp">Blocked for UDP</string>
+    <string name="rule_allowed_tcp">Allowed for TCP</string>
+    <string name="rule_allowed_udp">Allowed for UDP</string>
+    <!-- Description of the button that removes a rule, and the confirmation. -->
+    <string name="remove_rule_for">Remove the rule for <xliff:g id="entry" example="example.com">%1$s</xliff:g></string>
+    <string name="remove_rule_title">Remove the rule for <xliff:g id="entry" example="example.com">%1$s</xliff:g>?</string>
+    <string name="remove">Remove</string>
+
+    <!-- In the page that adds rules: the networks the rules apply on, and the networks chosen for that. -->
+    <string name="networks_label">Networks</string>
+    <string name="networks_all">All networks</string>
+    <string name="networks_only">Only on chosen networks</string>
+    <string name="networks_except">All except chosen networks</string>
+    <string name="networks_chosen">Chosen networks</string>
+    <!-- When rules limited to networks come back: a line may be malformed, or the networks too many to tell apart. -->
+    <string name="invalid_or_too_many_networks">These aren\'t valid, or name more networks than the firewall can tell apart. Fix them and try again.</string>
+    <!-- A rule's summary with the networks it is limited to. -->
+    <string name="rule_only_networks"><xliff:g id="rule" example="Blocked">%1$s</xliff:g> · only on <xliff:g id="networks" example="Wi\u2011Fi and Home">%2$s</xliff:g></string>
+    <string name="rule_except_networks"><xliff:g id="rule" example="Blocked">%1$s</xliff:g> · except on <xliff:g id="networks" example="VPN">%2$s</xliff:g></string>
+</resources>

@@ -29,6 +29,8 @@ import java.util.regex.Pattern;
 public class FirewallHostsideTests extends BaseHostJUnit4Test {
     private static final String PACKAGE = "org.lineageos.firewall.hostside.app";
     private static final String NO_INTERNET_PACKAGE = "org.lineageos.firewall.hostside.nointernet";
+    private static final String HTTPS_RULE =
+            "block port 443 --tcp --package " + PACKAGE + " --user 0";
     private static final String FIREWALL_APP = "org.lineageos.firewall";
     private static final String APP_TESTS = "org.lineageos.firewall.app.tests";
     private static final String NO_INTERNET_APK = "FirewallNoInternetTestApp.apk";
@@ -124,6 +126,16 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
         return null;
     }
 
+    private long connectDenials() throws Exception {
+        return Long.parseLong(shell("dumpsys firewall")
+                .replaceAll("(?s).*\\bconnect_deny (\\d+).*", "$1"));
+    }
+
+    /** Whether the device is on Wi-Fi. */
+    private boolean onWifi() throws Exception {
+        return shell("cmd wifi status").contains("Wifi is connected to");
+    }
+
     /** Adds a profile of the device's first user, like a work profile; returns its id. */
     private int createProfile(String type, String name) throws Exception {
         String created = shell("pm create-user --profileOf 0 " + type + " " + name);
@@ -153,17 +165,44 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     }
 
     @Test
+    public void rulesLimitedToANetworkApplyOnlyThere() throws Exception {
+        assumeTrue("Needs Wi-Fi", onWifi());
+        String rule = "block address 1.1.1.1 --package " + PACKAGE;
+        for (String networks : new String[] {"--on mobile", "--except wifi"}) {
+            shell("cmd firewall add-rule " + rule + " " + networks);
+            try {
+                assertTrue(networks, run("HostChecks", "allowed", 0));
+            } finally {
+                shell("cmd firewall remove-rule " + rule + " " + networks);
+            }
+        }
+        for (String networks : new String[] {"--on wifi"}) {
+            shell("cmd firewall add-rule " + rule + " " + networks);
+            try {
+                assertTrue(networks, run("HostChecks", "refused", 0));
+            } finally {
+                shell("cmd firewall remove-rule " + rule + " " + networks);
+            }
+        }
+    }
+
+    @Test
     public void refusalsAreListedWithTheAppReasonAndFarEnd() throws Exception {
         // A far end no other test refuses: one far end's refusals are reported once a minute.
         String address = "192.0.2.1";
-        setRules("all", 0);
-        assertTrue(runDeviceTests(options("HostChecks", "refused", 0)
-                .addInstrumentationArg("address", address)));
-        Pattern listed = Pattern.compile(
-                Pattern.quote(PACKAGE + " user 0, connect tcp " + address + ":443 refused ")
-                        + "(once|\\d+ times): all");
-        waitUntil("The refusal was not listed", 10_000,
-                () -> listed.matcher(shell("dumpsys firewall")).find());
+        String rule = "block address " + address + " --package " + PACKAGE;
+        shell("cmd firewall add-rule " + rule);
+        try {
+            assertTrue(runDeviceTests(options("HostChecks", "refused", 0)
+                    .addInstrumentationArg("address", address)));
+            Pattern listed = Pattern.compile(
+                    Pattern.quote(PACKAGE + " user 0, connect tcp " + address + ":443 refused ")
+                            + "(once|\\d+ times): address");
+            waitUntil("The refusal was not listed", 10_000,
+                    () -> listed.matcher(shell("dumpsys firewall")).find());
+        } finally {
+            shell("cmd firewall remove-rule " + rule);
+        }
     }
 
     @Test
@@ -599,6 +638,55 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
             }
         }
         assertTrue(run("HostChecks", "blocked", 0));
+    }
+
+    @Test
+    public void webAppFetchesCountAsTheRequestingApp() throws Exception {
+        // Web app installs are refused unless this setting is on.
+        String enabled = shell("settings get global enable_webapp_minter").trim();
+        shell("settings put global enable_webapp_minter 1");
+        shell("cmd firewall add-rule " + HTTPS_RULE);
+        try {
+            long before = connectDenials();
+            assertTrue(run("DelegatedTraffic", "requestWebAppInstall", 0));
+            assertTrue("The manifest fetch was not refused", connectDenials() > before);
+        } finally {
+            shell("cmd firewall remove-rule " + HTTPS_RULE);
+            shell(enabled.equals("null") ? "settings delete global enable_webapp_minter"
+                    : "settings put global enable_webapp_minter " + enabled);
+        }
+    }
+
+    @Test
+    public void pacProxyConnectionsCountAsTheRequestingApp() throws Exception {
+        assumeTrue("Needs Wi-Fi", onWifi());
+        // An address rule leaves the app its network: with none left, the app loses loopback too,
+        // and with it the PAC file it serves and the local proxy.
+        String rule = "block address 192.0.2.1 --package " + PACKAGE + " --user 0";
+        shell("cmd firewall add-rule " + rule);
+        try {
+            long before = connectDenials();
+            assertTrue(run("DelegatedTraffic", "requestThroughAPacProxy", 0));
+            assertTrue("The proxied connection was not refused", connectDenials() > before);
+        } finally {
+            shell("cmd firewall remove-rule " + rule);
+        }
+    }
+
+    @Test
+    public void appLinkVerificationCountsAsTheApp() throws Exception {
+        // A port rule refuses the fetch's connection but not its lookup, which since delegated
+        // lookups is made as the app too, so the refusal lands where the counter sees it.
+        shell("cmd firewall add-rule " + HTTPS_RULE);
+        try {
+            long before = connectDenials();
+            shell("pm verify-app-links --re-verify " + PACKAGE);
+            // Verification runs in the background and reports no event, so wait as CTS does.
+            waitUntil("The verification fetch was not refused", 60_000,
+                    () -> connectDenials() != before);
+        } finally {
+            shell("cmd firewall remove-rule " + HTTPS_RULE);
+        }
     }
 
     @Test

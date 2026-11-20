@@ -3,6 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-# The resolver checks lookups against the maps.
+# The resolver checks lookups against the maps, and adds the answers of allowed domains.
 allow netd fs_bpf_firewall:dir search;
-allow netd fs_bpf_firewall:file { getattr read };
+allow netd fs_bpf_firewall:file { getattr read write };

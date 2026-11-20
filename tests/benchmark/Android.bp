@@ -1,0 +1,24 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+cc_benchmark {
+    name: "firewall_benchmark",
+    srcs: ["firewall_benchmark.cpp"],
+    require_root: true,
+    header_libs: [
+        "bpf_syscall_wrappers",
+        "firewall_headers",
+    ],
+    static_libs: [
+        "libfirewall_lookup",
+        "libnetd_test_tun_interface",
+    ],
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "liblog",
+        "libnetutils",
+    ],
+}

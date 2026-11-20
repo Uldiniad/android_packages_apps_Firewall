@@ -10,5 +10,5 @@ PRODUCT_PACKAGES += \
 
 PRODUCT_SYSTEM_SERVER_JARS += firewall-service
 
-# Builds the firewall's policy in.
+# Builds netd's lookup check and the firewall's policy in.
 $(call soong_config_set_bool,lineage_firewall,enabled,true)

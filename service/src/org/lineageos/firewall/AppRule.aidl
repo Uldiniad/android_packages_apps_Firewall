@@ -11,6 +11,8 @@ parcelable AppRule {
     int rules;
     boolean isDefault;
     boolean notified;
+    /** How many FirewallRules the app has. */
+    int ruleCount;
     /** Whether a pause blocks the app or allows it, and until when; 0 for no pause. */
     boolean pauseBlocks;
     long pauseUntil;

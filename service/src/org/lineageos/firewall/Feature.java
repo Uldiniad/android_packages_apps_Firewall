@@ -82,6 +82,35 @@ abstract class Feature {
     /** Fills in what the feature knows of the app for the firewall app. */
     void fillAppRuleLocked(Pair<String, Integer> app, AppRule rule) {}
 
+    /** The feature's part of the app's backup; null when it has none. */
+    Object backupAppLocked(Pair<String, Integer> app) {
+        return null;
+    }
+
+    /** The feature's part of the user's backup; null when it has none. */
+    Object backupUserLocked(int userId) {
+        return null;
+    }
+
+    /** Writes the feature's tags inside a backed-up user, or app, from its part. */
+    void writeBackupTags(Object part, boolean user, XmlSerializer serializer)
+            throws IOException {}
+
+    /**
+     * Reads a tag inside a backed-up user, or app, into the feature's part, as payloads are
+     * untrusted: what doesn't parse is left out. False if the tag isn't the feature's.
+     */
+    boolean readBackupTag(XmlPullParser parser, boolean user, FirewallBackup.Parts parts)
+            throws IOException, XmlPullParserException {
+        return false;
+    }
+
+    /** Applies the feature's part of a restored app, after its switches. */
+    void restoreAppLocked(Pair<String, Integer> app, FirewallBackup.App restored) {}
+
+    /** Applies the feature's part of a restored user, whose state was forgotten first. */
+    void restoreUserLocked(int userId, Object part) {}
+
     /** Writes the feature's part of the dump. */
     void dumpLocked(PrintWriter pw) {}
 

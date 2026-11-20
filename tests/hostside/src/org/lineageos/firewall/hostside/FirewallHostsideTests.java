@@ -32,6 +32,7 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     private static final String APP_TESTS = "org.lineageos.firewall.app.tests";
     private static final String NO_INTERNET_APK = "FirewallNoInternetTestApp.apk";
     private static final String NO_INTERNET_UPDATE_APK = "FirewallNoInternetUpdateTestApp.apk";
+    private static final String LOCAL_TRANSPORT = "com.android.localtransport/.LocalTransport";
     private static final String WORK_PROFILE = "--managed";
     private static final String CLONE_PROFILE = "--user-type android.os.usertype.profile.CLONE";
     private static final String PRIVATE_PROFILE =
@@ -367,6 +368,38 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     }
 
     @Test
+    public void restoredRulesWaitForAnAppInstalledArchived() throws Exception {
+        String backup = "/data/local/tmp/firewall-archived.xml";
+        String metadata = "/data/local/tmp/firewall-archived.metadata";
+        String apk = "/data/local/tmp/firewall-archived.apk";
+        assertTrue(getDevice().pushFile(testFile(NO_INTERNET_APK), apk));
+        int user = getDevice().createUser("fwrestorearchived");
+        try {
+            assertTrue(getDevice().startUser(user, true));
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            shell("cmd firewall set-app " + NO_INTERNET_PACKAGE + " wifi --user 0");
+            assertTrue(getDevice().pushString(shell("cmd firewall backup --user 0"), backup));
+            shell("pm get-archived-package-metadata --user 0 " + NO_INTERNET_PACKAGE + " > "
+                    + metadata);
+            // Only an app the device doesn't have can be installed archived.
+            shell("pm uninstall " + NO_INTERNET_PACKAGE);
+            shell("cmd firewall restore --user " + user + " < " + backup);
+            // As a store restoring a phone does: the app comes archived, its APK when opened.
+            String installer = " -t -i " + PACKAGE + " --user " + user + " ";
+            assertEquals("Success", shell("pm install-archived" + installer + metadata).trim());
+            shell("am wait-for-broadcast-idle");
+            assertEquals("Success", shell("pm install -r" + installer + apk).trim());
+            awaitRules("wifi", NO_INTERNET_PACKAGE, user);
+        } finally {
+            shell("pm remove-user --wait " + user);
+            // Back as the suite installed it, new and so blocked for lacking INTERNET.
+            shell("pm uninstall " + NO_INTERNET_PACKAGE);
+            shell("pm install -t " + apk);
+            shell("rm -f " + backup + " " + metadata + " " + apk);
+        }
+    }
+
+    @Test
     public void appsOnAnAdoptedCardKeepTheirRulesWhileItsOut() throws Exception {
         assumeTrue("Needs adoptable storage",
                 Boolean.parseBoolean(shell("sm has-adoptable").trim()));
@@ -459,5 +492,42 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
         getDevice().waitForDeviceAvailable();
         assertNotEquals(netd, shell("pidof netd").trim());
         assertTrue(run("HostChecks", "blocked", 0));
+    }
+
+    @Test
+    public void theFirewallAppBacksUpTheRules() throws Exception {
+        String current = shell("bmgr list transports").replaceAll("(?s).*\\* (\\S+).*", "$1");
+        boolean enabled = shell("bmgr enabled").contains("currently enabled");
+        try {
+            shell("bmgr enable true");
+            shell("bmgr transport " + LOCAL_TRANSPORT);
+            setRules("mobile", 0);
+            assertTrue(shell("bmgr backupnow " + FIREWALL_APP).contains("Success"));
+            setRules("none", 0);
+            String token = shell("bmgr list sets").trim().split("\\s+")[0];
+            shell("bmgr restore " + token + " " + FIREWALL_APP);
+            assertEquals("mobile", getRules(0));
+        } finally {
+            shell("bmgr transport " + current);
+            if (!enabled) shell("bmgr enable false");
+        }
+    }
+
+    @Test
+    public void restoredRulesWaitForTheAppToBeInstalled() throws Exception {
+        String backup = "/data/local/tmp/firewall-backup.xml";
+        setRules("mobile", 0);
+        assertTrue(getDevice().pushString(shell("cmd firewall backup --user 0"), backup));
+        int user = getDevice().createUser("fwrestore");
+        try {
+            assertTrue(getDevice().startUser(user, true));
+            shell("cmd firewall restore --user " + user + " < " + backup);
+            assertEquals("none", getRules(user));
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            awaitRules("mobile", PACKAGE, user);
+        } finally {
+            shell("pm remove-user --wait " + user);
+            shell("rm -f " + backup);
+        }
     }
 }

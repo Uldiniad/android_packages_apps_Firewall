@@ -20,9 +20,11 @@ import com.android.settingslib.spa.widget.preference.PreferenceModel
 import com.android.settingslib.spa.widget.ui.Category
 import com.android.settingslib.spa.widget.ui.SettingsIcon
 
-/** A network as rule summaries list it: a kind by its list name. */
-fun Context.networkListName(key: String): String =
-    Network.entries.find { it.key == key }?.let { getString(it.listName) } ?: key
+/** A network as rule summaries list it: a kind by its list name, a specific one by its name. */
+fun Context.networkListName(key: String, names: Map<String, String>): String =
+    Network.entries.find { it.key == key }?.let { getString(it.listName) }
+        ?: names[key]
+        ?: key.substringAfter(':')
 
 /** What a rule can name, in the order the app shows them. */
 enum class RuleKind(
@@ -80,15 +82,15 @@ fun Context.ruleTitle(rule: FirewallRule): String =
         else -> getString(R.string.port_title, rule.value)
     }
 
-/** A rule's summary, with the networks it is limited to. */
-fun Context.ruleSummary(rule: FirewallRule): String {
+/** A rule's summary, with the networks it is limited to by the names in [names]. */
+fun Context.ruleSummary(rule: FirewallRule, names: Map<String, String>): String {
     val summary = targetSummary(rule)
     val networks = rule.networks.orEmpty()
     if (networks.isEmpty()) return summary
     return getString(
         if (rule.exceptNetworks) R.string.rule_except_networks else R.string.rule_only_networks,
         summary,
-        formatList(networks.map { networkListName(it) }),
+        formatList(networks.map { networkListName(it, names) }),
     )
 }
 
@@ -131,6 +133,7 @@ fun TargetRules(packageName: String, userId: Int) {
         remember(packageName, userId) { Firewall.rules(userId, packageName) }
             .collectAsStateWithLifecycle(null)
     val remove = rememberRemoveRuleDialog()
+    val names = rememberNetworkNames(userId)
     Category(title = stringResource(R.string.rules_title)) {
         val shown = rules.orEmpty()
         if (rules != null && shown.isEmpty()) {
@@ -140,7 +143,7 @@ fun TargetRules(packageName: String, userId: Int) {
                 }
             )
         }
-        for (rule in shown) RuleRow(rule, remove)
+        for (rule in shown) RuleRow(rule, names, remove)
         Preference(
             object : PreferenceModel {
                 override val title = stringResource(R.string.add_rule)

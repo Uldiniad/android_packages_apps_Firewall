@@ -30,9 +30,11 @@ interface Maps {
     boolean knowsLoopbackReceivers();
     void clearRules();
     int setUid(int uid, int rules);
+    /** The slots of the specific networks the app is blocked or allowed on; 0s delete. */
+    int setNamedNetworks(int uid, int block, int allow);
     /** The kinds of rules for all of the user's apps; 0 deletes. */
     int setUserFlags(int user, int flags);
-    /** A network's bits: what blocks it. */
+    /** A network's bits: what blocks it, and the slot of the specific network it is. */
     int setIface(int ifindex, long net);
     int setNet(int netId, long net);
     void setVpnRanges(int[] starts, int[] ends, int[] netIds);
@@ -101,6 +103,9 @@ interface Maps {
         @Override public void clearRules() { FirewallMaps.nativeClearRules(); }
         @Override public int setUid(int uid, int rules) {
             return FirewallMaps.nativeSetUid(uid, rules);
+        }
+        @Override public int setNamedNetworks(int uid, int block, int allow) {
+            return FirewallMaps.nativeSetNamedNetworks(uid, block, allow);
         }
         @Override public int setUserFlags(int user, int flags) {
             return FirewallMaps.nativeSetUserFlags(user, flags);

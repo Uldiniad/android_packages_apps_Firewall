@@ -65,6 +65,11 @@ public class VpnTests {
         Firewall.awaitFirewallSees(Firewall.vpnNetwork());
     }
 
+    private static void setNetwork(String choice) {
+        runShellCommand("cmd firewall set-network " + Firewall.PACKAGE + " vpn:" + Firewall.PACKAGE
+                + " " + choice + " --user " + Firewall.userId());
+    }
+
     /** Whether a UDP packet to the port reached the VPN's tun. */
     private static boolean tunSaw(int port) throws Exception {
         return Firewall.tunSaw(TestVpnService.sTun.getFileDescriptor(), port);
@@ -109,6 +114,21 @@ public class VpnTests {
         stopVpn();
         startVpn(false, null, false);
         assertTrue(Firewall.udpSends(REMOTE, 9));
+    }
+
+    @Test
+    public void aChoiceForTheVpnAppWinsOverTheVpnSwitch() throws Exception {
+        startVpn(false, null);
+        try {
+            setNetwork("block");
+            assertFalse(Firewall.udpSends(REMOTE, 9));
+            Firewall.setRules("vpn");
+            setNetwork("allow");
+            assertTrue(Firewall.udpSends(REMOTE, 9));
+            assertTrue("Nothing reached the tunnel", tunSaw(9));
+        } finally {
+            setNetwork("default");
+        }
     }
 
     @Test

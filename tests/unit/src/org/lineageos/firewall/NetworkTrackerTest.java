@@ -122,4 +122,16 @@ public class NetworkTrackerTest {
         mTracker.onCapabilitiesChanged(network(CELLULAR), caps(TRANSPORT_CELLULAR).build());
         assertFalse(mTracker.blocksEveryNetwork(APP, FirewallMaps.BLOCK_ROAMING));
     }
+
+    @Test
+    public void sourcesAddTheirBitsToNetworks() {
+        // As a feature does for the slot of a specific network.
+        mTracker.addBitsSource((nc, transport) -> "\"Home\"".equals(nc.getSsid()) ? 1L << 34 : 0);
+        mTracker.onCapabilitiesChanged(network(WIFI), caps(TRANSPORT_WIFI).setSsid("\"Home\"")
+                .build());
+        assertEquals(Map.of(WIFI, FirewallMaps.BLOCK_WIFI | 1L << 34), mMaps.nets);
+        assertFalse("Allowed at home",
+                mTracker.blocksEveryNetwork(APP, FirewallMaps.BLOCK_WIFI, 0, 1 << 2));
+        assertTrue("Blocked at home", mTracker.blocksEveryNetwork(APP, 0, 1 << 2, 0));
+    }
 }

@@ -22,7 +22,7 @@ parcelable FirewallRule {
     boolean subdomains;
     /** For ports, IFirewall.PROTOCOL_TCP or PROTOCOL_UDP, or 0 for both. */
     int protocol;
-    /** The networks the rule is limited to, by key, like "wifi"; without any, every network. */
+    /** The networks the rule is limited to, by KnownNetwork key; without any, every network. */
     @nullable String[] networks;
     /** Whether the rule applies on every network but those, rather than only on them. */
     boolean exceptNetworks;

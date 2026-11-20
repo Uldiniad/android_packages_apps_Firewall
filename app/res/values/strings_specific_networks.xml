@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Opens the app's choices for each saved Wi‑Fi network, SIM and VPN app. -->
+    <string name="specific_networks">Specific networks</string>
+    <string name="specific_networks_summary">Choose for each Wi\u2011Fi network, SIM and VPN</string>
+    <plurals name="specific_network_count">
+        <item quantity="one">Set for <xliff:g id="count" example="1">%d</xliff:g> network</item>
+        <item quantity="other">Set for <xliff:g id="count" example="2">%d</xliff:g> networks</item>
+    </plurals>
+
+    <!-- Groups of an app's specific networks, each with a note when there are none. -->
+    <string name="specific_wifi">Wi\u2011Fi networks</string>
+    <string name="specific_sims">SIMs</string>
+    <string name="specific_vpns">VPN apps</string>
+    <string name="no_saved_wifi">No saved Wi\u2011Fi networks</string>
+    <string name="no_sims">No SIMs</string>
+    <string name="no_vpn_apps">No VPN apps</string>
+    <!-- A SIM the phone no longer has, which rules still name. -->
+    <string name="removed_sim">Removed SIM <xliff:g id="id" example="3">%1$s</xliff:g></string>
+    <!-- What the app does on a specific network: what its switch for that kind of network says, or its own choice. -->
+    <string name="choice_same_as_wifi">Same as Wi\u2011Fi</string>
+    <string name="choice_same_as_mobile">Same as mobile data</string>
+    <string name="choice_same_as_vpn">Same as VPN</string>
+    <string name="choice_allowed">Allowed</string>
+    <string name="choice_blocked">Blocked</string>
+    <string name="specific_networks_footer">A choice for a network wins over the app\'s other switches for it, like Wi\u2011Fi or metered networks.</string>
+    <string name="too_many_networks">Can\'t choose for more networks. Remove a choice or rule for another network first.</string>
+    <!-- A specific network in that list, with its kind. -->
+    <string name="specific_wifi_label"><xliff:g id="network" example="Home">%1$s</xliff:g> (Wi\u2011Fi)</string>
+    <string name="specific_sim_label"><xliff:g id="network" example="Mint">%1$s</xliff:g> (SIM)</string>
+    <string name="specific_vpn_label"><xliff:g id="network" example="Proton VPN">%1$s</xliff:g> (VPN)</string>
+</resources>

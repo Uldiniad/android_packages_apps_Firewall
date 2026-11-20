@@ -136,6 +136,15 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
         return shell("cmd wifi status").contains("Wifi is connected to");
     }
 
+    /** The key of the Wi-Fi network the device is on, from the firewall's list; null if none. */
+    private String connectedWifi() throws Exception {
+        for (String line : shell("cmd firewall list-networks").split("\n")) {
+            int connected = line.indexOf(" (connected)");
+            if (line.startsWith("wifi:") && connected > 0) return line.substring(0, connected);
+        }
+        return null;
+    }
+
     /** Adds a profile of the device's first user, like a work profile; returns its id. */
     private int createProfile(String type, String name) throws Exception {
         String created = shell("pm create-user --profileOf 0 " + type + " " + name);
@@ -159,16 +168,38 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
         return 0;
     }
 
+    /** Quotes an argument for the device's shell, as SSIDs can hold anything. */
+    private static String quote(String argument) {
+        return "'" + argument.replace("'", "'\\''") + "'";
+    }
+
     @After
     public void tearDown() throws Exception {
         setRules("none", 0);
     }
 
     @Test
+    public void aChoiceForTheWifiNetworkWinsOverTheWifiSwitch() throws Exception {
+        String wifi = connectedWifi();
+        assumeTrue("Needs Wi-Fi", wifi != null);
+        String network = "cmd firewall set-network " + PACKAGE + " " + quote(wifi);
+        try {
+            shell(network + " block");
+            assertTrue(run("HostChecks", "blocked", 0));
+            setRules("wifi", 0);
+            shell(network + " allow");
+            assertTrue(run("HostChecks", "allowed", 0));
+        } finally {
+            shell(network + " default");
+        }
+    }
+
+    @Test
     public void rulesLimitedToANetworkApplyOnlyThere() throws Exception {
-        assumeTrue("Needs Wi-Fi", onWifi());
+        String wifi = connectedWifi();
+        assumeTrue("Needs Wi-Fi", wifi != null);
         String rule = "block address 1.1.1.1 --package " + PACKAGE;
-        for (String networks : new String[] {"--on mobile", "--except wifi"}) {
+        for (String networks : new String[] {"--on mobile", "--except " + quote(wifi)}) {
             shell("cmd firewall add-rule " + rule + " " + networks);
             try {
                 assertTrue(networks, run("HostChecks", "allowed", 0));
@@ -176,7 +207,7 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
                 shell("cmd firewall remove-rule " + rule + " " + networks);
             }
         }
-        for (String networks : new String[] {"--on wifi"}) {
+        for (String networks : new String[] {"--on wifi", "--on " + quote(wifi)}) {
             shell("cmd firewall add-rule " + rule + " " + networks);
             try {
                 assertTrue(networks, run("HostChecks", "refused", 0));
@@ -639,6 +670,32 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
             }
         }
         assertTrue(run("HostChecks", "blocked", 0));
+    }
+
+    @Test
+    public void backupsKeepNetworkChoicesAndLimits() throws Exception {
+        String backup = "/data/local/tmp/firewall-networks.xml";
+        String rule = "block domain example.test --package " + PACKAGE + " --on wifi";
+        String network = "cmd firewall set-network " + PACKAGE + " vpn:" + PACKAGE;
+        shell("cmd firewall add-rule " + rule);
+        shell(network + " block");
+        int user = getDevice().createUser("fwnetworks");
+        try {
+            assertTrue(getDevice().pushString(shell("cmd firewall backup --user 0"), backup));
+            assertTrue(getDevice().startUser(user, true));
+            shell("cmd firewall restore --user " + user + " < " + backup);
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            waitUntil("The restored rule never came", 30_000, () -> shell("cmd firewall list-rules"
+                    + " --package " + PACKAGE + " --user " + user)
+                    .contains("block domain example.test only on wifi"));
+            assertTrue(shell("dumpsys firewall").contains("Networks for " + PACKAGE + " user "
+                    + user + ": {vpn:" + PACKAGE + "=false}"));
+        } finally {
+            shell("pm remove-user --wait " + user);
+            shell("rm -f " + backup);
+            shell("cmd firewall remove-rule " + rule);
+            shell(network + " default");
+        }
     }
 
     @Test

@@ -75,5 +75,8 @@ int registerRefusalCounts(JNIEnv* env, jclass cls);
 bool initTargetRules();
 void clearTargetRules();
 int registerTargetRules(JNIEnv* env, jclass cls);
+bool initSpecificNetworks();
+void clearSpecificNetworks();
+int registerSpecificNetworks(JNIEnv* env, jclass cls);
 
 }  // namespace firewall

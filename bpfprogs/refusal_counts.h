@@ -29,7 +29,7 @@ static __always_inline __u32 refusal_reasons(__u32 uid, __u32 rules, __u8 direct
         if (rules & FW_RULE_BLOCK_ALL) reasons |= FW_REFUSED_ALL;
         // Apps kept off loopback are blocked on it as on a network.
         if ((direction != FW_REFUSAL_CONNECT && path->ifindex == 1) ||
-            network_blocked(rules, path)) {
+            network_blocked(uid, rules, path)) {
             reasons |= FW_REFUSED_NETWORK;
         }
     }

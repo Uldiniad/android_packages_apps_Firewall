@@ -114,9 +114,11 @@ static __always_inline __u64 path_network(const struct fw_path* path) {
                          : iface_network(path->ifindex);
 }
 
-static __always_inline bool network_blocked(__u32 rules, const struct fw_path* path) {
-    if (!(rules & FW_RULE_NETWORKS)) return false;
-    return fw_network_blocked(rules, path_network(path));
+#include "specific_networks.h"
+
+static __always_inline bool network_blocked(__u32 uid, __u32 rules, const struct fw_path* path) {
+    if (!(rules & (FW_RULE_NETWORKS | FW_RULE_NAMED_NETWORKS))) return false;
+    return fw_network_blocked(rules, named_networks_of(uid, rules), path_network(path));
 }
 
 // The far end of a packet or connection: the destination going out, the source coming in.
@@ -193,7 +195,7 @@ static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 
                                         bool* parsed, __u32* counter) {
     bool blocked_all = rules & FW_RULE_BLOCK_ALL;
     // Apps kept off loopback are blocked on it as on a network.
-    bool blocked_here = path->ifindex == 1 || network_blocked(rules, path);
+    bool blocked_here = path->ifindex == 1 || network_blocked(uid, rules, path);
     *counter = blocked_all ? FW_C_EGRESS_DROP_ALL : FW_C_EGRESS_DROP_TRANSPORT;
     *parsed = parse_l4(skb, info, true);
     if ((blocked_all || blocked_here) && !(rules & FW_SCOPE_ALLOWS)) return true;
@@ -262,7 +264,7 @@ int ingress(struct __sk_buff* skb) {
     __u32 rules = rules_for(uid, &subject);
     if (!subject || !rules) return 1;
     struct fw_path path = {.ifindex = ifindex};
-    if (!(rules & FW_RULE_BLOCK_ALL) && !network_blocked(rules, &path)) return 1;
+    if (!(rules & FW_RULE_BLOCK_ALL) && !network_blocked(uid, rules, &path)) return 1;
     struct l4_info info = {};
     bool parsed = parse_l4(skb, &info, false);
     // A blocked app still hears back from what its allow rules let it reach.
@@ -308,7 +310,7 @@ static __always_inline int connect_verdict(struct bpf_sock_addr* ctx, bool v6) {
     // the app is kept off it.
     bool off = cut_off(FW_REFUSAL_CONNECT, rules, &info, &path);
     bool blocked =
-            (off && ((rules & FW_RULE_BLOCK_ALL) || network_blocked(rules, &path))) ||
+            (off && ((rules & FW_RULE_BLOCK_ALL) || network_blocked(uid, rules, &path))) ||
             ((rules & FW_SCOPE_BLOCKS) && scope_blocks(uid, rules, &info, &path, NULL));
     if (!blocked) {
         __u32 user = uid / AID_USER_OFFSET;

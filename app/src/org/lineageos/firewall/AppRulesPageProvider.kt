@@ -112,6 +112,7 @@ private fun AppRulesPage(packageName: String, userId: Int) {
                     }
                 )
             }
+            SpecificNetworksEntry(packageName, userId, rule, allowed)
         }
         TargetRules(packageName, userId)
         Category {

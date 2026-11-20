@@ -42,14 +42,14 @@ fun rememberRemoveRuleDialog(): (FirewallRule) -> Unit {
     }
 }
 
-/** A rule's row, with a button that removes it. */
+/** A rule's row, with a button that removes it; [names] name its specific networks. */
 @Composable
-fun RuleRow(rule: FirewallRule, remove: (FirewallRule) -> Unit) {
+fun RuleRow(rule: FirewallRule, names: Map<String, String>, remove: (FirewallRule) -> Unit) {
     val context = LocalContext.current
     val title = context.ruleTitle(rule)
     TwoTargetButtonPreference(
         title = title,
-        summary = { context.ruleSummary(rule) },
+        summary = { context.ruleSummary(rule, names) },
         buttonIcon = Icons.Outlined.Delete,
         buttonIconDescription = stringResource(R.string.remove_rule_for, title),
         onButtonClick = { remove(rule) },

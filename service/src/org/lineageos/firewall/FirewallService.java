@@ -97,6 +97,7 @@ public final class FirewallService extends SystemService {
         mFeatures = List.of(
                 new BackupRestore(this),
                 new Schedules(this),
+                new LineageImport(this, storeDir),
                 new RefusalCounts(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
@@ -171,6 +172,8 @@ public final class FirewallService extends SystemService {
             mStore.apps.keySet().removeIf(app -> !users.contains(app.second) || knownUid(app) < 0);
             for (Feature feature : mFeatures) feature.onLoadedLocked(users);
             for (Feature feature : mFeatures) feature.onStartLocked(users, firstStart);
+            // Saved before NPMS reads netpolicy.xml and drops Lineage's bits.
+            if (firstStart) mStore.save();
             if (mMapsReady) {
                 mMaps.clearRules();
                 for (Feature feature : mFeatures) feature.onMapsClearedLocked();

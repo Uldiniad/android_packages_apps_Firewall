@@ -221,6 +221,44 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
         return String.format("%02d:%02d", minute / 60 % 24, minute % 60);
     }
 
+    /**
+     * Starts the framework as an upgrade from a build with Lineage's old firewall leaves the
+     * phone: the uid's bits in NPMS's binary file, which lists uid policies after the
+     * policy-list element and before the allowlist, and no firewall file yet.
+     */
+    private void startAsUpgradedFromLineage(int uid, int policy) throws Exception {
+        String policies = "/data/local/tmp/netpolicy.xml";
+        try {
+            shell("abx2xml /data/system/netpolicy.xml " + policies);
+            String text = shell("cat " + policies);
+            assertTrue(text.contains("<whitelist"));
+            String old = "<uid-policy uid=\"" + uid + "\" policy=\"" + policy + "\" />";
+            assertTrue(getDevice().pushString(text.replace("<whitelist", old + "<whitelist"),
+                    policies));
+            shell("xml2abx " + policies + " " + policies + ".abx");
+            restartFramework("cat " + policies + ".abx > /data/system/netpolicy.xml",
+                    "rm /data/system/firewall.xml");
+        } finally {
+            shell("rm -f " + policies + " " + policies + ".abx");
+        }
+    }
+
+    @Test
+    public void lineagesOldAppBlocksBecomeRules() throws Exception {
+        String backup = "/data/local/tmp/firewall-upgrade.xml";
+        int uid = uidOf(PACKAGE, 0);
+        assertTrue(getDevice().pushString(shell("cmd firewall backup --user 0"), backup));
+        try {
+            startAsUpgradedFromLineage(uid, 0x8000 | 0x10000);
+            assertEquals("wifi,mobile", getRules(0));
+            // NPMS drops them as it reads the file.
+            assertFalse(shell("dumpsys netpolicy").contains("UID=" + uid + " policy="));
+        } finally {
+            shell("cmd firewall restore --user 0 < " + backup);
+            shell("rm -f " + backup);
+        }
+    }
+
     @Test
     public void theFirewallSaysWhenItIsNotRunning() throws Exception {
         setRules("wifi", 0);

@@ -260,6 +260,26 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     }
 
     @Test
+    public void lineagesBlocksOfAppsWithoutInternetActAsNewInstalls() throws Exception {
+        String backup = "/data/local/tmp/firewall-upgrade.xml";
+        assertTrue(getDevice().pushString(shell("cmd firewall backup --user 0"), backup));
+        try {
+            // Lineage blocked the app on its own, as it was installed without INTERNET.
+            startAsUpgradedFromLineage(uidOf(NO_INTERNET_PACKAGE, 0), 0x40000);
+            assertEquals("all", getRules(NO_INTERNET_PACKAGE, 0));
+            install(NO_INTERNET_UPDATE_APK);
+            shell("am wait-for-broadcast-idle");
+            assertEquals("all", getRules(NO_INTERNET_PACKAGE, 0));
+            waitUntil("The user was not notified", 10_000,
+                    () -> blockedNoticePosted(NO_INTERNET_PACKAGE, 0));
+        } finally {
+            shell("cmd firewall restore --user 0 < " + backup);
+            shell("rm -f " + backup);
+            install(NO_INTERNET_APK);
+        }
+    }
+
+    @Test
     public void theFirewallSaysWhenItIsNotRunning() throws Exception {
         setRules("wifi", 0);
         try {
@@ -334,6 +354,24 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
             } finally {
                 shell("pm remove-user --wait " + profile);
             }
+        }
+    }
+
+    @Test
+    public void cloneAppsBlockedAsNewNotifyTheUser() throws Exception {
+        int clone = createProfile(CLONE_PROFILE, "fwclone");
+        try {
+            assertTrue(getDevice().startUser(clone, true));
+            shell("cmd firewall set-new-installs blocked --user " + clone);
+            shell("pm install-existing --user " + clone + " " + PACKAGE);
+            awaitRules("all", PACKAGE, clone);
+            assertTrue(run("HostChecks", "blocked", clone));
+            // The firewall app's notification, keyed user|package|id|tag|uid.
+            String posted = clone + "|" + FIREWALL_APP + "|1|" + PACKAGE + "|";
+            waitUntil("The user was not notified", 10_000,
+                    () -> shell("dumpsys notification --noredact").contains(posted));
+        } finally {
+            shell("pm remove-user --wait " + clone);
         }
     }
 
@@ -453,6 +491,30 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     }
 
     @Test
+    public void archivedAppsDontComeBackAsNewApps() throws Exception {
+        // The no-internet app's update has INTERNET, so it starts without rules.
+        install(NO_INTERNET_UPDATE_APK, "-i", PACKAGE);
+        int user = getDevice().createUser("fwunarchive");
+        try {
+            assertTrue(getDevice().startUser(user, true));
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            shell("pm install-existing --user " + user + " " + NO_INTERNET_PACKAGE);
+            shell("am wait-for-broadcast-idle");
+            assertEquals("none", getRules(NO_INTERNET_PACKAGE, user));
+            shell("cmd firewall set-new-installs blocked --user " + user);
+            assertEquals("Success",
+                    shell("pm archive --user " + user + " " + NO_INTERNET_PACKAGE).trim());
+            shell("am wait-for-broadcast-idle");
+            shell("pm install-existing --user " + user + " " + NO_INTERNET_PACKAGE);
+            shell("am wait-for-broadcast-idle");
+            assertEquals("none", getRules(NO_INTERNET_PACKAGE, user));
+        } finally {
+            shell("pm remove-user --wait " + user);
+            install(NO_INTERNET_APK);
+        }
+    }
+
+    @Test
     public void restoredRulesWaitForAnAppInstalledArchived() throws Exception {
         String backup = "/data/local/tmp/firewall-archived.xml";
         String metadata = "/data/local/tmp/firewall-archived.metadata";
@@ -541,6 +603,51 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     }
 
     @Test
+    public void newInstallsGetTheirUsersDefaults() throws Exception {
+        int user = getDevice().createUser("fwnewinstalls");
+        try {
+            // The user stays stopped, which Android's package broadcasts skip. The service hears
+            // of installs in order, so once the second is in, the first is too.
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            shell("pm install-existing --user " + user + " " + NO_INTERNET_PACKAGE);
+            // Without INTERNET it starts blocked, so an update adding it doesn't get network.
+            awaitRules("all", NO_INTERNET_PACKAGE, user);
+            assertEquals("none", getRules(PACKAGE, user));
+
+            shell("pm uninstall --user " + user + " " + PACKAGE);
+            shell("cmd firewall set-new-installs blocked --user " + user);
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            awaitRules("all", PACKAGE, user);
+        } finally {
+            shell("pm remove-user --wait " + user);
+        }
+    }
+
+    @Test
+    public void anUpdateAddingInternetLeavesANewAppBlocked() throws Exception {
+        int user = getDevice().createUser("fwupdate");
+        try {
+            assertTrue(getDevice().startUser(user, true));
+            shell("pm install-existing --user " + user + " " + NO_INTERNET_PACKAGE);
+            awaitRules("all", NO_INTERNET_PACKAGE, user);
+            shell("am wait-for-broadcast-idle");
+            assertFalse("Notified of an app that can't use the network",
+                    blockedNoticePosted(NO_INTERNET_PACKAGE, user));
+            install(NO_INTERNET_UPDATE_APK);
+            shell("am wait-for-broadcast-idle");
+            assertTrue(shell("dumpsys package " + NO_INTERNET_PACKAGE)
+                    .contains("android.permission.INTERNET: granted=true"));
+            assertEquals("all", getRules(NO_INTERNET_PACKAGE, user));
+            assertEquals(1, rulesInMap(uidOf(NO_INTERNET_PACKAGE, user)) & 1);
+            waitUntil("The user was not notified", 10_000,
+                    () -> blockedNoticePosted(NO_INTERNET_PACKAGE, user));
+        } finally {
+            shell("pm remove-user --wait " + user);
+            install(NO_INTERNET_APK);
+        }
+    }
+
+    @Test
     public void anUpdateDroppingInternetKeepsTheRulesForItsReturn() throws Exception {
         install(NO_INTERNET_UPDATE_APK);
         int user = getDevice().createUser("fwdropped");
@@ -561,6 +668,46 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
             shell("pm remove-user --wait " + user);
             install(NO_INTERNET_APK);
         }
+    }
+
+    @Test
+    public void aNewInstallBlockedByDefaultNotifiesTheUser() throws Exception {
+        int user = getDevice().createUser("fwnewapp");
+        try {
+            assertTrue(getDevice().startUser(user, true));
+            shell("cmd firewall set-new-installs blocked --user " + user);
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            awaitRules("all", PACKAGE, user);
+            String noted = PACKAGE + " user " + user + " rules all (default, notified)";
+            waitUntil("The app was not noted", 10_000,
+                    () -> shell("dumpsys firewall").contains(noted));
+            waitUntil("The user was not notified", 10_000,
+                    () -> blockedNoticePosted(PACKAGE, user));
+        } finally {
+            shell("pm remove-user --wait " + user);
+        }
+    }
+
+    @Test
+    public void theNoticeGoesWithTheAppOnUninstall() throws Exception {
+        int user = getDevice().createUser("fwnoticegone");
+        try {
+            assertTrue(getDevice().startUser(user, true));
+            shell("cmd firewall set-new-installs blocked --user " + user);
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            waitUntil("The user was not notified", 10_000,
+                    () -> blockedNoticePosted(PACKAGE, user));
+            shell("pm uninstall --user " + user + " " + PACKAGE);
+            waitUntil("The notice stayed", 10_000, () -> !blockedNoticePosted(PACKAGE, user));
+        } finally {
+            shell("pm remove-user --wait " + user);
+        }
+    }
+
+    /** Whether the firewall app's notice about the app is up, keyed user|package|id|tag|uid. */
+    private boolean blockedNoticePosted(String packageName, int user) throws Exception {
+        return shell("dumpsys notification --noredact")
+                .contains(user + "|" + FIREWALL_APP + "|1|" + packageName + "|");
     }
 
     @Test

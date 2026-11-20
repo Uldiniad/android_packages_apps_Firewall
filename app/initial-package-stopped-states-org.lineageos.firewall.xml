@@ -5,6 +5,6 @@
 -->
 <config>
     <!-- New users and profiles start launcher apps stopped, which would drop the broadcasts the
-         app follows until the user opened it. -->
+         app follows, like the service's reports of blocked new apps, until the user opened it. -->
     <initial-package-state package="org.lineageos.firewall" stopped="false"/>
 </config>

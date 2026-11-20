@@ -52,7 +52,7 @@ private fun Context.networkSummary(rule: AppRule?, usesInternet: Boolean): Strin
     val rules = rule?.rules ?: 0
     scheduleListSummary(rule)?.let { return it }
     if (rules and IFirewall.BLOCK_ALL != 0) {
-        return getString(R.string.rules_blocked)
+        return newAppListSummary(rule) ?: getString(R.string.rules_blocked)
     }
     val blocked = Network.entries.filter { rules and it.rule != 0 }.map { getString(it.listName) }
     if (blocked.isEmpty()) {

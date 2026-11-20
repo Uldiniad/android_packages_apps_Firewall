@@ -26,6 +26,13 @@ public class HostChecks {
         assertFalse(Firewall.tcpConnects("1.1.1.1", 443));
     }
 
+    /** A connection to the "address" argument, 1.1.1.1 without one, is refused. */
+    @Test
+    public void refused() throws Exception {
+        assertFalse(Firewall.tcpConnects(
+                InstrumentationRegistry.getArguments().getString("address", "1.1.1.1"), 443));
+    }
+
     /**
      * Turns on quiet mode for the profile the "profile" argument names, as pausing work apps or
      * locking private space does.

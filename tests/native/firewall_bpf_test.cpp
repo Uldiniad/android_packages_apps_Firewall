@@ -52,6 +52,8 @@ const std::vector<std::string> kMaps = {
         "net_transport",
         "vpn_ranges",
         "counters",
+        "refusals",
+        "refusal_stats",
 };
 const std::vector<std::pair<std::string, bpf_attach_type>> kProgs = {
         {"egress", BPF_CGROUP_INET_EGRESS}, {"ingress", BPF_CGROUP_INET_INGRESS},
@@ -89,6 +91,7 @@ class FirewallBpfTest : public ::testing::Test {
                      "uid_rules",
                      "iface_transport",
                      "net_transport",
+                     "refusal_stats",
              }) {
             mMaps[name].reset(mapRetrieveRW(mapPath(name).c_str()));
             ASSERT_LE(0, mMaps[name].get()) << name << ": " << strerror(errno);
@@ -181,6 +184,22 @@ class FirewallBpfTest : public ::testing::Test {
         }
         return connect(fd.get(), reinterpret_cast<sockaddr*>(&to), len) ? errno : 0;
     }
+
+    // A UDP refusal's key, cleared so only refusals from now on count. The service drains the
+    // reports, so the counts behind them are what's checked.
+    fw_refusal_key clearedRefusal(uint8_t direction, int family, const char* address, int port) {
+        fw_refusal_key key = {.uid = kTestUid, .direction = direction, .protocol = IPPROTO_UDP,
+                              .v6 = family == AF_INET6, .port = static_cast<uint16_t>(port)};
+        inet_pton(family, address, key.addr);
+        forget("refusal_stats", key);
+        deleteMapEntry(mMaps["refusal_stats"], &key);
+        return key;
+    }
+    fw_refusal_stats refusalStats(const fw_refusal_key& key) {
+        fw_refusal_stats stats = {};
+        findMapEntry(mMaps["refusal_stats"], &key, &stats);
+        return stats;
+    }
     std::map<std::string, unique_fd> mMaps;
     std::vector<std::pair<std::string, std::vector<uint8_t>>> mWritten;
     TunInterface mTun;
@@ -261,6 +280,27 @@ TEST_F(FirewallBpfTest, TransportRuleUsesTheEgressInterface) {
     setRules(FW_RULE_BLOCK_CELLULAR);
     EXPECT_EQ(EPERM, sendMulticast(kPort));
     EXPECT_FALSE(tunSaw(kPort));
+}
+
+TEST_F(FirewallBpfTest, RefusalsAreCountedWithEveryReason) {
+    // Blocked everywhere and on this network.
+    setNetwork(FW_RULE_BLOCK_CELLULAR);
+    setRules(FW_RULE_BLOCK_ALL | FW_RULE_BLOCK_CELLULAR);
+    fw_refusal_key key = clearedRefusal(FW_REFUSAL_CONNECT, AF_INET, "203.0.113.7", 7);
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.7", 7));
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.7", 7));
+    fw_refusal_stats stats = refusalStats(key);
+    EXPECT_EQ(2u, stats.count);
+    EXPECT_EQ(FW_REFUSED_ALL | FW_REFUSED_NETWORK, stats.reasons);
+    EXPECT_LE(stats.first_ns, stats.last_ns);
+
+    // Packets out count too.
+    setRules(FW_RULE_BLOCK_ALL);
+    key = clearedRefusal(FW_REFUSAL_OUT, AF_INET6, "ff02::1", kPort);
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+    stats = refusalStats(key);
+    EXPECT_EQ(1u, stats.count);
+    EXPECT_EQ(FW_REFUSED_ALL, stats.reasons);
 }
 
 TEST_F(FirewallBpfTest, MeteredAndRoamingSwitchesFollowTheNetwork) {

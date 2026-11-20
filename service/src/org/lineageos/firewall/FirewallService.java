@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.time.Clock;
 
 /**
  * Owns the firewall rules, keeps them in the BPF maps and serves the app and the shell.
@@ -69,6 +70,7 @@ public final class FirewallService extends SystemService {
     /** The apps written with NO_LOOPBACK. */
     private final Set<Integer> mNoLoopback = new HashSet<>();
     private ConnectivityManager mConnectivity;
+    private final Clock mClock;
     /** Held here, as PackageManager's callback keeps only a weak reference to it. */
     private PackageMonitor mPackageMonitor;
     private boolean mOemDenyReady;
@@ -79,19 +81,22 @@ public final class FirewallService extends SystemService {
     private boolean mSavePending;
 
     public FirewallService(Context context) {
-        this(context, Maps.NATIVE, new File(Environment.getDataDirectory(), "system"));
+        this(context, Maps.NATIVE, new File(Environment.getDataDirectory(), "system"),
+                Clock.systemUTC());
     }
 
-    FirewallService(Context context, Maps maps, File storeDir) {
+    FirewallService(Context context, Maps maps, File storeDir, Clock clock) {
         super(context);
         mContext = context;
         mMaps = maps;
+        mClock = clock;
         HandlerThread thread = new HandlerThread(TAG);
         thread.start();
         mHandler = new Handler(thread.getLooper());
         mNetworks = new NetworkTracker(maps, mHandler, this::onNetworksChanged);
         mFeatures = List.of(
-                new BackupRestore(this));
+                new BackupRestore(this),
+                new RefusalCounts(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
 
@@ -101,6 +106,10 @@ public final class FirewallService extends SystemService {
 
     Handler handler() {
         return mHandler;
+    }
+
+    Clock clock() {
+        return mClock;
     }
 
     FirewallStore store() {
@@ -501,6 +510,7 @@ public final class FirewallService extends SystemService {
             for (int i = 0; i < counters.length && i < FirewallMaps.COUNTERS.length; i++) {
                 pw.println("  " + FirewallMaps.COUNTERS[i] + " " + counters[i]);
             }
+            for (Feature feature : mFeatures) feature.dumpMaps(pw);
         }
     }
 

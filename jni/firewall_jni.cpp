@@ -41,6 +41,7 @@ jboolean nativeInit(JNIEnv*, jclass) {
         !init(gMaps.vpnRanges, FW_MAP_PATH("vpn_ranges"))) {
         return false;
     }
+    if (!initRefusalCounts()) return false;
     return gMaps.counters.ok();
 }
 
@@ -150,5 +151,6 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
                                      sizeof(firewall::kMethods) / sizeof(firewall::kMethods[0]))) {
         return JNI_ERR;
     }
+    if (firewall::registerRefusalCounts(env, cls)) return JNI_ERR;
     return JNI_VERSION_1_6;
 }

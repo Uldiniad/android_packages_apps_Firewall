@@ -1,0 +1,45 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+java_test_host {
+    name: "FirewallHostsideTests",
+    srcs: ["src/**/*.java"],
+    libs: ["tradefed"],
+    device_common_data: [
+        ":FirewallAppTests",
+        ":FirewallHostsideTestApp",
+        ":FirewallNoInternetTestApp",
+        ":FirewallNoInternetUpdateTestApp",
+    ],
+    test_config: "AndroidTest.xml",
+    test_suites: ["general-tests"],
+}
+
+android_test_helper_app {
+    name: "FirewallHostsideTestApp",
+    srcs: ["app/src/**/*.java"],
+    manifest: "app/AndroidManifest.xml",
+    // Platform-signed to call Android's test network API, which isn't open to apps.
+    platform_apis: true,
+    certificate: "platform",
+    static_libs: [
+        "androidx.test.runner",
+        "compatibility-device-util-axt",
+        "junit",
+        "net-tests-utils",
+    ],
+}
+
+android_test_helper_app {
+    name: "FirewallNoInternetTestApp",
+    manifest: "nointernet/AndroidManifest.xml",
+    sdk_version: "current",
+}
+
+android_test_helper_app {
+    name: "FirewallNoInternetUpdateTestApp",
+    manifest: "nointernetupdate/AndroidManifest.xml",
+    sdk_version: "current",
+}

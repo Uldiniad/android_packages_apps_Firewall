@@ -1,0 +1,6 @@
+#
+# SPDX-FileCopyrightText: The LineageOS Project
+# SPDX-License-Identifier: Apache-2.0
+#
+
+genfscon bpf /firewall u:object_r:fs_bpf_firewall:s0

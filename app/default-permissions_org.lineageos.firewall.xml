@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<exceptions>
+    <!-- For its notification that the firewall isn't running. -->
+    <exception package="org.lineageos.firewall">
+        <permission name="android.permission.POST_NOTIFICATIONS" fixed="false" />
+    </exception>
+</exceptions>

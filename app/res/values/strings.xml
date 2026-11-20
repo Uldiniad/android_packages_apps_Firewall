@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="app_name">Firewall</string>
+    <!-- Summary of the firewall's entry in Settings > Network & internet. -->
+    <string name="settings_summary">Choose which networks apps can use</string>
+
+    <!-- Banner on the home page when the firewall's programs aren't loaded, which leaves every app unfirewalled. -->
+    <string name="firewall_not_running">The firewall isn\'t running, so apps can use the network without its rules. Restarting your phone may help.</string>
+
+    <!-- Summary of an app in the app list. -->
+    <string name="rules_allowed">Allowed</string>
+    <!-- Summary of an app without network access, which Android keeps off the network. -->
+    <string name="rules_no_internet">Can\'t use the network</string>
+    <string name="rules_blocked">Blocked</string>
+    <!-- Summary listing the networks an app is blocked on. -->
+    <string name="rules_blocked_on">Blocked on <xliff:g id="networks" example="Wi\u2011Fi and VPN">%1$s</xliff:g></string>
+    <!-- Network names, as items of the list in rules_blocked_on. -->
+    <string name="networks_list_wifi">Wi\u2011Fi</string>
+    <string name="networks_list_mobile">mobile data</string>
+    <string name="networks_list_vpn">VPN</string>
+    <string name="networks_list_other">other networks</string>
+    <string name="networks_list_metered">metered networks</string>
+    <string name="networks_list_roaming">roaming</string>
+
+    <!-- Title of an app's page. -->
+    <string name="app_rules_title">Network access</string>
+    <string name="allow_network_access">Allow network access</string>
+    <!-- Title of the switches for each kind of network. -->
+    <string name="networks_title">Networks</string>
+    <string name="network_wifi">Wi\u2011Fi</string>
+    <string name="network_mobile">Mobile data</string>
+    <string name="network_vpn">VPN</string>
+    <string name="network_other">Other networks</string>
+    <string name="network_other_summary">Such as Ethernet and USB</string>
+    <!-- Unlike Data Saver, which only limits what apps use in the background. -->
+    <string name="network_metered">Metered networks</string>
+    <string name="network_metered_summary">Such as mobile data and hotspots. Unlike Data Saver, this applies even while the app is open.</string>
+    <string name="network_roaming">Roaming</string>
+    <string name="network_roaming_summary">Mobile data while roaming</string>
+    <!-- Opens Android's data usage page for the app, where its background data and Data Saver switches are. -->
+    <string name="data_usage">Background data &amp; Data Saver</string>
+    <string name="app_rules_footer">A blocked app can\'t connect on that network, even in the background.</string>
+    <!-- Lists the other apps that share this app's network access. -->
+    <string name="app_rules_footer_shared">Rules also apply to <xliff:g id="apps" example="Settings and Android System">%1$s</xliff:g>, which share this app\'s network access.</string>
+
+    <!-- Notification after a boot when the firewall can't run, for users with rules it can't apply. -->
+    <string name="channel_status">Firewall status</string>
+    <string name="channel_status_description">When the firewall isn\'t running</string>
+    <string name="not_running_title">The firewall isn\'t running</string>
+    <string name="not_running_text">Apps can use the network without your rules. Restart your phone, and report it if this keeps happening.</string>
+</resources>

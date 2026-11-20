@@ -1,0 +1,50 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+android_app {
+    name: "Firewall",
+    defaults: ["SpaPrivilegedLib-defaults"],
+    srcs: [
+        ":firewall-aidl",
+        "src/**/*.kt",
+    ],
+    use_resource_processor: true,
+    platform_apis: true,
+    certificate: "platform",
+    system_ext_specific: true,
+    optimize: {
+        optimize: true,
+        shrink_resources: true,
+    },
+    required: [
+        "default-permissions_org.lineageos.firewall",
+        "initial-package-stopped-states-org.lineageos.firewall",
+        "preinstalled-packages-org.lineageos.firewall",
+    ],
+}
+
+prebuilt_etc {
+    name: "default-permissions_org.lineageos.firewall",
+    sub_dir: "default-permissions",
+    src: "default-permissions_org.lineageos.firewall.xml",
+    filename_from_src: true,
+    system_ext_specific: true,
+}
+
+prebuilt_etc {
+    name: "initial-package-stopped-states-org.lineageos.firewall",
+    sub_dir: "sysconfig",
+    src: "initial-package-stopped-states-org.lineageos.firewall.xml",
+    filename_from_src: true,
+    system_ext_specific: true,
+}
+
+prebuilt_etc {
+    name: "preinstalled-packages-org.lineageos.firewall",
+    sub_dir: "sysconfig",
+    src: "preinstalled-packages-org.lineageos.firewall.xml",
+    filename_from_src: true,
+    system_ext_specific: true,
+}

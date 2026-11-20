@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.lineageos.firewall">
+
+    <!-- Changing the firewall service's rules, as MANAGE_NETWORK_POLICY guards NPMS's. -->
+    <permission
+        android:name="org.lineageos.firewall.permission.MANAGE_FIREWALL"
+        android:protectionLevel="signature" />
+
+    <uses-permission android:name="org.lineageos.firewall.permission.MANAGE_FIREWALL" />
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS" />
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS_FULL" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
+        android:name=".FirewallApplication"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize"
+            android:exported="true" />
+
+        <!-- The launcher icon alone, which profiles hide as Settings does. -->
+        <activity-alias
+            android:name=".LauncherEntry"
+            android:exported="true"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- The entry in Settings, under Network & internet. -->
+        <activity-alias
+            android:name=".SettingsEntry"
+            android:exported="true"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="com.android.settings.action.IA_SETTINGS" />
+            </intent-filter>
+            <meta-data
+                android:name="com.android.settings.category"
+                android:value="com.android.settings.category.ia.wireless" />
+            <meta-data
+                android:name="com.android.settings.order"
+                android:value="16" />
+            <meta-data
+                android:name="com.android.settings.summary"
+                android:resource="@string/settings_summary" />
+            <meta-data
+                android:name="com.android.settings.icon"
+                android:resource="@drawable/ic_firewall" />
+            <meta-data
+                android:name="com.android.settings.icon_tintable"
+                android:value="true" />
+        </activity-alias>
+
+        <receiver
+            android:name=".BootCompletedReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".UserInitializeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.USER_INITIALIZE" />
+                <action android:name="android.intent.action.PRE_BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

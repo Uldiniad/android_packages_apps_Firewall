@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<config>
+    <!-- New users and profiles start launcher apps stopped, which would drop the broadcasts the
+         app follows until the user opened it. -->
+    <initial-package-state package="org.lineageos.firewall" stopped="false"/>
+</config>

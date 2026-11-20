@@ -1,0 +1,7 @@
+#
+# SPDX-FileCopyrightText: The LineageOS Project
+# SPDX-License-Identifier: Apache-2.0
+#
+
+# The BPF programs and maps
+type fs_bpf_firewall, fs_type, bpffs_type;

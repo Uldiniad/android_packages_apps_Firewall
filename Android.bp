@@ -1,0 +1,109 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+cc_library_headers {
+    name: "firewall_headers",
+    export_include_dirs: ["bpfprogs/include"],
+}
+
+libbpf_prog {
+    name: "firewall.bpf",
+    srcs: ["bpfprogs/firewall.c"],
+    local_include_dirs: ["bpfprogs/include"],
+    header_libs: [
+        "android_bpf_defs",
+        "libcutils_headers",
+    ],
+}
+
+cc_library_shared {
+    name: "libfirewall_jni",
+    srcs: ["jni/*.cpp"],
+    header_libs: [
+        "bpf_headers",
+        "bpf_syscall_wrappers",
+        "firewall_headers",
+        "jni_headers",
+    ],
+    shared_libs: [
+        "libbase",
+        "liblog",
+        "libnativehelper",
+        "libprocessgroup",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+}
+
+// netd's check of lookups for the resolver, linked in when the firewall is built.
+cc_library_static {
+    name: "libfirewall_lookup",
+    srcs: ["lookup/FirewallLookup.cpp"],
+    export_include_dirs: ["lookup/include"],
+    header_libs: [
+        "bpf_headers",
+        "firewall_headers",
+        "libcutils_headers",
+    ],
+    shared_libs: [
+        "libbase",
+        "liblog",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+}
+
+// The binder interface between the service and the firewall app.
+filegroup {
+    name: "firewall-aidl",
+    srcs: ["service/src/**/*.aidl"],
+    path: "service/src",
+}
+
+// The service before jarjar, which its unit tests build against.
+java_library {
+    name: "firewall-service-pre-jarjar",
+    srcs: [
+        ":firewall-aidl",
+        "service/src/**/*.java",
+    ],
+    // As Lineage's own system server jar, for PackageMonitor, which reaches stopped users.
+    sdk_version: "core_platform",
+    libs: [
+        "framework",
+        "framework-connectivity.stubs.module_lib",
+        "framework-wifi.stubs.module_lib",
+        "services.core",
+    ],
+    static_libs: [
+        "modules-utils-binary-xml",
+        "modules-utils-shell-command-handler",
+    ],
+    visibility: ["//packages/apps/Firewall:__subpackages__"],
+}
+
+java_library {
+    name: "firewall-service",
+    installable: true,
+    sdk_version: "core_platform",
+    static_libs: ["firewall-service-pre-jarjar"],
+    jarjar_rules: "jarjar-rules.txt",
+    permitted_packages: ["org.lineageos.firewall"],
+    required: [
+        "firewall.bpf",
+        "libfirewall_jni",
+    ],
+}
+
+runtime_resource_overlay {
+    name: "FirewallFrameworksOverlay",
+    manifest: "overlay/AndroidManifest.xml",
+    resource_dirs: ["overlay/res"],
+    product_specific: true,
+}

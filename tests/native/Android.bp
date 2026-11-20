@@ -1,0 +1,26 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+cc_test {
+    name: "firewall_bpf_test",
+    srcs: ["firewall_bpf_test.cpp"],
+    require_root: true,
+    header_libs: [
+        "bpf_headers",
+        "bpf_syscall_wrappers",
+        "firewall_headers",
+    ],
+    static_libs: [
+        "libfirewall_lookup",
+        "libnetd_test_tun_interface",
+    ],
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "liblog",
+        "libnetutils",
+    ],
+    test_suites: ["general-tests"],
+}

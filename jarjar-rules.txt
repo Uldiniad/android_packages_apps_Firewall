@@ -1,0 +1,1 @@
+rule com.android.modules.utils.** org.lineageos.firewall.util.@1

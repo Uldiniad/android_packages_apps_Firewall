@@ -1,0 +1,8 @@
+#
+# SPDX-FileCopyrightText: The LineageOS Project
+# SPDX-License-Identifier: Apache-2.0
+#
+
+# The resolver checks lookups against the maps.
+allow netd fs_bpf_firewall:dir search;
+allow netd fs_bpf_firewall:file { getattr read };

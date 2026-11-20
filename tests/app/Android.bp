@@ -1,0 +1,26 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+// Drives the installed firewall app from outside: R8 shrinks it, so tests can't run inside it.
+android_test {
+    name: "FirewallAppTests",
+    srcs: [
+        ":firewall-aidl",
+        "src/**/*.kt",
+    ],
+    platform_apis: true,
+    certificate: "platform",
+    static_libs: [
+        "androidx.test.ext.junit",
+        "compatibility-device-util-axt",
+        "uiautomator-accessibility",
+        // Needed at runtime by the accessibility rule.
+        "hamcrest-library",
+        "microbenchmark-device-lib",
+    ],
+    data: [":FirewallNoInternetTestApp"],
+    test_config: "AndroidTest.xml",
+    test_suites: ["device-tests"],
+}

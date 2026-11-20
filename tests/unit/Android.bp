@@ -1,0 +1,22 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+android_test {
+    name: "FirewallServiceTests",
+    srcs: ["src/**/*.java"],
+    platform_apis: true,
+    libs: ["framework-connectivity.stubs.module_lib"],
+    static_libs: [
+        "androidx.test.runner",
+        "compatibility-device-util-axt",
+        "firewall-service-pre-jarjar",
+        "junit",
+        "mockito-target-minus-junit4",
+        "services.core",
+    ],
+    data: [":FirewallNoInternetTestApp"],
+    test_config: "AndroidTest.xml",
+    test_suites: ["device-tests"],
+}

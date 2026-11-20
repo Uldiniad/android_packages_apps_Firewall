@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<configuration description="Firewall host-side tests">
+    <option name="test-suite-tag" value="general-tests" />
+    <target_preparer class="com.android.tradefed.targetprep.suite.SuiteApkInstaller">
+        <option name="test-file-name" value="FirewallAppTests.apk" />
+        <option name="test-file-name" value="FirewallHostsideTestApp.apk" />
+        <option name="test-file-name" value="FirewallNoInternetTestApp.apk" />
+        <option name="cleanup-apks" value="true" />
+    </target_preparer>
+    <test class="com.android.tradefed.testtype.HostTest">
+        <option name="jar" value="FirewallHostsideTests.jar" />
+    </test>
+</configuration>

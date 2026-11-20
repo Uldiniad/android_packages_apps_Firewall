@@ -1,0 +1,463 @@
+/*
+ * SPDX-FileCopyrightText: The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package org.lineageos.firewall.hostside;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
+
+import com.android.tradefed.testtype.DeviceJUnit4ClassRunner;
+import com.android.tradefed.testtype.junit4.BaseHostJUnit4Test;
+import com.android.tradefed.testtype.junit4.DeviceTestRunOptions;
+
+import org.junit.After;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+import java.io.File;
+import java.util.concurrent.Callable;
+
+/** Runs the helper app's checks, and the ones that need the host: reboots and other users. */
+@RunWith(DeviceJUnit4ClassRunner.class)
+public class FirewallHostsideTests extends BaseHostJUnit4Test {
+    private static final String PACKAGE = "org.lineageos.firewall.hostside.app";
+    private static final String NO_INTERNET_PACKAGE = "org.lineageos.firewall.hostside.nointernet";
+    private static final String FIREWALL_APP = "org.lineageos.firewall";
+    private static final String APP_TESTS = "org.lineageos.firewall.app.tests";
+    private static final String NO_INTERNET_APK = "FirewallNoInternetTestApp.apk";
+    private static final String NO_INTERNET_UPDATE_APK = "FirewallNoInternetUpdateTestApp.apk";
+    private static final String WORK_PROFILE = "--managed";
+    private static final String CLONE_PROFILE = "--user-type android.os.usertype.profile.CLONE";
+    private static final String PRIVATE_PROFILE =
+            "--user-type android.os.usertype.profile.PRIVATE";
+    private static final String ADOPTABLE_DISKS = "sm list-disks adoptable";
+
+    private String shell(String command) throws Exception {
+        return getDevice().executeShellCommand(command);
+    }
+
+    private void setRules(String rules, int user) throws Exception {
+        shell("cmd firewall set-app " + PACKAGE + " " + rules + " --user " + user);
+    }
+
+    private String getRules(int user) throws Exception {
+        return getRules(PACKAGE, user);
+    }
+
+    private String getRules(String packageName, int user) throws Exception {
+        return shell("cmd firewall get-app " + packageName + " --user " + user).trim();
+    }
+
+    private boolean run(String className, String method, int user) throws Exception {
+        return runDeviceTests(options(className, method, user));
+    }
+
+    private DeviceTestRunOptions options(String className, String method, int user) {
+        DeviceTestRunOptions options = new DeviceTestRunOptions(PACKAGE)
+                .setTestClassName(PACKAGE + "." + className)
+                .setUserId(user);
+        if (method != null) options.setTestMethodName(method);
+        return options;
+    }
+
+    /** Pauses a work profile or locks private space through Android's quiet mode, or undoes it. */
+    private boolean setQuietMode(int profile, boolean enabled) throws Exception {
+        return runDeviceTests(options("HostChecks", enabled ? "enableQuietMode"
+                : "disableQuietMode", 0).addInstrumentationArg("profile",
+                Integer.toString(profile)));
+    }
+
+    /** Waits for a change with no event to wait for here; fails with the message after the time. */
+    private static void waitUntil(String failure, long timeoutMillis, Callable<Boolean> done)
+            throws Exception {
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (!done.call()) {
+            assertTrue(failure, System.currentTimeMillis() < deadline);
+            Thread.sleep(500);
+        }
+    }
+
+    /** Restarts Android's framework, running the commands while it's down, as a boot would. */
+    private void restartFramework(String... whileStopped) throws Exception {
+        shell("stop");
+        for (String command : whileStopped) shell(command);
+        // Cleared so the wait is for this start.
+        shell("setprop sys.boot_completed 0");
+        shell("setprop dev.bootcomplete 0");
+        shell("start");
+        getDevice().waitForDeviceAvailable();
+    }
+
+    /** Waits for the service to apply a package change, which reaches it by PackageMonitor. */
+    private void awaitRules(String expected, String packageName, int user) throws Exception {
+        waitUntil(packageName + " never got " + expected, 30_000,
+                () -> expected.equals(getRules(packageName, user)));
+    }
+
+    private File testFile(String name) throws Exception {
+        return getTestInformation().getDependencyFile(name, true);
+    }
+
+    /** Installs one of the test APKs over the one installed, for every user. */
+    private void install(String apk, String... options) throws Exception {
+        assertNull(getDevice().installPackage(testFile(apk), true, options));
+    }
+
+    /** The adopted card's volume, as its id, state and uuid, once it's mounted; else null. */
+    private String adoptedVolume() throws Exception {
+        for (String line : shell("sm list-volumes private").split("\n")) {
+            if (line.startsWith("private:") && line.contains(" mounted ")) return line.trim();
+        }
+        return null;
+    }
+
+    /** Adds a profile of the device's first user, like a work profile; returns its id. */
+    private int createProfile(String type, String name) throws Exception {
+        String created = shell("pm create-user --profileOf 0 " + type + " " + name);
+        assertTrue("No profile: " + created, created.matches("(?s).*created user id \\d+.*"));
+        return Integer.parseInt(created.replaceAll("(?s).*created user id (\\d+).*", "$1"));
+    }
+
+    private int uidOf(String packageName, int user) throws Exception {
+        return Integer.parseInt(shell("pm list packages -U --user " + user + " " + packageName)
+                .replaceAll("(?s).*uid:([0-9]+).*", "$1"));
+    }
+
+    /** The rules the service has written to the BPF maps for the uid, or 0 for none. */
+    private int rulesInMap(int uid) throws Exception {
+        String map = shell("dumpsys firewall")
+                .replaceAll("(?s).*UIDs in map: \\{([^}]*)}.*", "$1");
+        for (String entry : map.split(", ")) {
+            String[] parts = entry.split("=");
+            if (parts[0].equals(Integer.toString(uid))) return Integer.parseInt(parts[1]);
+        }
+        return 0;
+    }
+
+    @After
+    public void tearDown() throws Exception {
+        setRules("none", 0);
+    }
+
+    @Test
+    public void appLevelBehavior() throws Exception {
+        assertTrue(run("AppNetworkTests", null, 0));
+    }
+
+    @Test
+    public void vpnBehavior() throws Exception {
+        assertTrue(run("VpnTests", null, 0));
+    }
+
+    @Test
+    public void testNetworkBehavior() throws Exception {
+        assertTrue(run("TestNetworkTests", null, 0));
+    }
+
+    @Test
+    public void rulesSurviveAReboot() throws Exception {
+        setRules("all", 0);
+        getDevice().reboot();
+        assertTrue(run("HostChecks", "blocked", 0));
+        setRules("none", 0);
+        assertTrue(run("HostChecks", "allowed", 0));
+    }
+
+    private static String time(int minute) {
+        return String.format("%02d:%02d", minute / 60 % 24, minute % 60);
+    }
+
+    @Test
+    public void theFirewallSaysWhenItIsNotRunning() throws Exception {
+        setRules("wifi", 0);
+        try {
+            // As when the loader skips the firewall's programs, the service starts without them.
+            restartFramework("rm /sys/fs/bpf/firewall/map_firewall_uid_rules");
+            assertTrue(shell("dumpsys firewall").contains("Maps: missing"));
+            // The firewall app's notification, keyed user|package|id|tag|uid.
+            String posted = "0|" + FIREWALL_APP + "|2|not_running|";
+            waitUntil("The user was not warned", 60_000,
+                    () -> shell("dumpsys notification --noredact").contains(posted));
+            assertTrue(runDeviceTests(new DeviceTestRunOptions(APP_TESTS)
+                    .setTestClassName(FIREWALL_APP + ".FirewallAppTest")
+                    .setTestMethodName("homePageWarnsWhileTheFirewallIsNotRunning")));
+        } finally {
+            // The loader pins the maps again at boot.
+            getDevice().reboot();
+            setRules("none", 0);
+        }
+    }
+
+    @Test
+    public void rulesArePerUserAndGoWithTheUser() throws Exception {
+        int user = getDevice().createUser("fwhosttest");
+        try {
+            assertTrue(getDevice().startUser(user, true));
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            setRules("all", user);
+            assertTrue(run("HostChecks", "blocked", user));
+            assertTrue(run("HostChecks", "allowed", 0));
+        } finally {
+            // --wait returns once the removal is done, so the user-removed broadcast is sent.
+            shell("pm remove-user --wait " + user);
+        }
+        // The service drops the user's rules when that broadcast arrives.
+        shell("am wait-for-broadcast-idle");
+        assertEquals("none", getRules(user));
+    }
+
+    @Test
+    public void rulesGoWithTheAppOnUninstall() throws Exception {
+        // Uninstalling for one user keeps the APK for user 0, so it can come back without one.
+        int user = getDevice().createUser("fwuninstall");
+        try {
+            // The user stays stopped, which Android's package broadcasts skip.
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            setRules("all", user);
+            assertEquals("all", getRules(user));
+            shell("pm uninstall --user " + user + " " + PACKAGE);
+            awaitRules("none", PACKAGE, user);
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            assertEquals("none", getRules(user));
+        } finally {
+            shell("pm remove-user --wait " + user);
+        }
+    }
+
+    @Test
+    public void profilesKeepTheirCopyWithoutALauncherIcon() throws Exception {
+        String launchers = "cmd package query-activities --brief -a android.intent.action.MAIN"
+                + " -c android.intent.category.LAUNCHER --user ";
+        assertTrue(shell(launchers + 0).contains(FIREWALL_APP + "/.LauncherEntry"));
+        for (String type : new String[] {WORK_PROFILE, CLONE_PROFILE, PRIVATE_PROFILE}) {
+            int profile = createProfile(type, "fwprofile");
+            try {
+                assertTrue(getDevice().startUser(profile, true));
+                shell("am wait-for-broadcast-idle");
+                // The personal profile's app shows the profile, as Settings does.
+                assertFalse(type, shell(launchers + profile).contains(FIREWALL_APP));
+                // Its own copy posts its notifications and backs up its rules.
+                assertTrue(type, shell("pm list packages --user " + profile + " "
+                        + FIREWALL_APP).contains(FIREWALL_APP));
+            } finally {
+                shell("pm remove-user --wait " + profile);
+            }
+        }
+    }
+
+    @Test
+    public void guestsFollowTheirOwnRules() throws Exception {
+        int guest = getDevice().createUser("fwguest", true, false);
+        try {
+            assertTrue(getDevice().startUser(guest, true));
+            assertTrue("Guests get the firewall app", shell("pm list packages --user " + guest
+                    + " " + FIREWALL_APP).contains(FIREWALL_APP));
+            shell("pm install-existing --user " + guest + " " + PACKAGE);
+            setRules("all", guest);
+            assertTrue(run("HostChecks", "blocked", guest));
+            assertTrue(run("HostChecks", "allowed", 0));
+        } finally {
+            shell("pm remove-user --wait " + guest);
+        }
+        shell("am wait-for-broadcast-idle");
+        assertEquals("none", getRules(guest));
+    }
+
+    @Test
+    public void workProfileAndPrivateSpaceAppsFollowTheirRules() throws Exception {
+        for (String type : new String[] {WORK_PROFILE, PRIVATE_PROFILE}) {
+            int profile = createProfile(type, "fwprofile");
+            try {
+                assertTrue(getDevice().startUser(profile, true));
+                shell("pm install-existing --user " + profile + " " + PACKAGE);
+                setRules("all", profile);
+                assertTrue(type, run("HostChecks", "blocked", profile));
+                assertTrue(type, run("HostChecks", "allowed", 0));
+                // A paused work profile or locked private space keeps its rules for its return.
+                assertTrue(type, setQuietMode(profile, true));
+                assertEquals(type, "all", getRules(profile));
+                assertTrue(type, setQuietMode(profile, false));
+                assertTrue(type, run("HostChecks", "blocked", profile));
+            } finally {
+                shell("pm remove-user --wait " + profile);
+            }
+        }
+    }
+
+    @Test
+    public void cloneAppsFollowTheirOwnRules() throws Exception {
+        int clone = createProfile(CLONE_PROFILE, "fwclone");
+        try {
+            assertTrue(getDevice().startUser(clone, true));
+            shell("pm install-existing --user " + clone + " " + PACKAGE);
+            setRules("all", clone);
+            assertTrue(run("HostChecks", "blocked", clone));
+            assertTrue(run("HostChecks", "allowed", 0));
+        } finally {
+            shell("pm remove-user --wait " + clone);
+        }
+    }
+
+    @Test
+    public void rulesHoldBeforeTheUserFirstUnlocks() throws Exception {
+        int user = getDevice().createUser("fwlocked");
+        try {
+            assertTrue(getDevice().startUser(user, true));
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            shell("locksettings set-pin --user " + user + " 1234");
+            setRules("all", user);
+            getDevice().reboot();
+            // Started without its PIN, the user's credential-encrypted storage stays locked.
+            shell("am start-user " + user);
+            waitUntil("The user never started", 60_000,
+                    () -> shell("am get-started-user-state " + user).contains("RUNNING_LOCKED"));
+            assertEquals(1, rulesInMap(uidOf(PACKAGE, user)) & 1);
+        } finally {
+            shell("pm remove-user --wait " + user);
+        }
+    }
+
+    @Test
+    public void appsUninstalledWithTheirDataKeptKeepTheirRules() throws Exception {
+        int user = getDevice().createUser("fwkeepdata");
+        try {
+            assertTrue(getDevice().startUser(user, true));
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            setRules("all", user);
+            // As Android keeps the app's data, the firewall keeps its rules.
+            shell("pm uninstall -k --user " + user + " " + PACKAGE);
+            shell("am wait-for-broadcast-idle");
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            assertEquals("all", getRules(user));
+        } finally {
+            shell("pm remove-user --wait " + user);
+        }
+    }
+
+    @Test
+    public void archivedAppsKeepTheirRules() throws Exception {
+        // As CTS archives: the helper app is an installer that can bring the app back.
+        install(NO_INTERNET_APK, "-i", PACKAGE);
+        int user = getDevice().createUser("fwarchive");
+        try {
+            assertTrue(getDevice().startUser(user, true));
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            shell("pm install-existing --user " + user + " " + NO_INTERNET_PACKAGE);
+            shell("cmd firewall set-app " + NO_INTERNET_PACKAGE + " wifi --user " + user);
+            int uid = uidOf(NO_INTERNET_PACKAGE, user);
+            assertEquals("Success",
+                    shell("pm archive --user " + user + " " + NO_INTERNET_PACKAGE).trim());
+            shell("am wait-for-broadcast-idle");
+            // As Android keeps an archived app's data, the firewall keeps its rules.
+            assertEquals("wifi", getRules(NO_INTERNET_PACKAGE, user));
+            assertEquals(2, rulesInMap(uid) & 2);
+            shell("pm install-existing --user " + user + " " + NO_INTERNET_PACKAGE);
+            shell("am wait-for-broadcast-idle");
+            assertEquals("wifi", getRules(NO_INTERNET_PACKAGE, user));
+            assertEquals(2, rulesInMap(uid) & 2);
+        } finally {
+            shell("pm remove-user --wait " + user);
+        }
+    }
+
+    @Test
+    public void appsOnAnAdoptedCardKeepTheirRulesWhileItsOut() throws Exception {
+        assumeTrue("Needs adoptable storage",
+                Boolean.parseBoolean(shell("sm has-adoptable").trim()));
+        // A virtual card, as CTS's adoptable storage tests use.
+        shell("sm set-virtual-disk true");
+        String[] volume = null;
+        try {
+            waitUntil("No card", 30_000, () -> shell(ADOPTABLE_DISKS).startsWith("disk:"));
+            shell("sm partition " + shell(ADOPTABLE_DISKS).trim() + " private");
+            waitUntil("The card was not adopted", 60_000, () -> adoptedVolume() != null);
+            volume = adoptedVolume().split(" ");
+            assertTrue(shell("pm move-package " + PACKAGE + " " + volume[2]).contains("Success"));
+            setRules("all", 0);
+            shell("sm unmount " + volume[0]);
+            shell("am wait-for-broadcast-idle");
+            // Android keeps the app while its card is out, so the firewall keeps its rules.
+            assertEquals("all", getRules(0));
+            shell("sm mount " + volume[0]);
+            waitUntil("The app did not come back", 60_000,
+                    () -> shell("pm list instrumentation").contains(PACKAGE));
+            shell("am wait-for-broadcast-idle");
+            assertTrue(run("HostChecks", "blocked", 0));
+        } finally {
+            if (volume != null) {
+                shell("sm mount " + volume[0]);
+                waitUntil("The app did not come back", 60_000,
+                        () -> shell("pm list instrumentation").contains(PACKAGE));
+                shell("pm move-package " + PACKAGE + " internal");
+            }
+            String disk = shell(ADOPTABLE_DISKS).trim();
+            if (disk.startsWith("disk:")) shell("sm partition " + disk + " public");
+            if (volume != null) shell("sm forget " + volume[2]);
+            shell("sm set-virtual-disk false");
+        }
+    }
+
+    @Test
+    public void appsTheUserCantRunKeepTheirRules() throws Exception {
+        setRules("all", 0);
+        int uid = uidOf(PACKAGE, 0);
+        String[][] states = {{"disable-user", "enable"}, {"hide", "unhide"},
+                {"suspend", "unsuspend"}};
+        for (String[] state : states) {
+            shell("pm " + state[0] + " --user 0 " + PACKAGE);
+            try {
+                shell("am wait-for-broadcast-idle");
+                assertEquals(state[0], "all", getRules(0));
+                assertEquals(state[0], 1, rulesInMap(uid) & 1);
+            } finally {
+                shell("pm " + state[1] + " --user 0 " + PACKAGE);
+            }
+        }
+        assertTrue(run("HostChecks", "blocked", 0));
+    }
+
+    @Test
+    public void anUpdateDroppingInternetKeepsTheRulesForItsReturn() throws Exception {
+        install(NO_INTERNET_UPDATE_APK);
+        int user = getDevice().createUser("fwdropped");
+        try {
+            assertTrue(getDevice().startUser(user, true));
+            shell("pm install-existing --user " + user + " " + NO_INTERNET_PACKAGE);
+            shell("cmd firewall set-app " + NO_INTERNET_PACKAGE + " wifi --user " + user);
+            int uid = uidOf(NO_INTERNET_PACKAGE, user);
+            // Android refuses its sockets meanwhile; the firewall keeps the user's rules.
+            install(NO_INTERNET_APK);
+            shell("am wait-for-broadcast-idle");
+            assertEquals("wifi", getRules(NO_INTERNET_PACKAGE, user));
+            install(NO_INTERNET_UPDATE_APK);
+            shell("am wait-for-broadcast-idle");
+            assertEquals("wifi", getRules(NO_INTERNET_PACKAGE, user));
+            assertEquals(2, rulesInMap(uid) & 2);
+        } finally {
+            shell("pm remove-user --wait " + user);
+            install(NO_INTERNET_APK);
+        }
+    }
+
+    @Test
+    public void aNetdRestartKeepsTheFirewallOn() throws Exception {
+        setRules("all", 0);
+        String netd = shell("pidof netd").trim();
+        String server = shell("pidof system_server").trim();
+        // netd restarts the zygote too; Connectivity's checks must accept our programs.
+        shell("kill " + netd);
+        // The boot completed flag stays set, so wait for the new system server's firewall.
+        waitUntil("The firewall did not come back", 120_000,
+                () -> !server.equals(shell("pidof system_server").trim())
+                        && shell("dumpsys firewall").contains("Programs: attached"));
+        getDevice().waitForDeviceAvailable();
+        assertNotEquals(netd, shell("pidof netd").trim());
+        assertTrue(run("HostChecks", "blocked", 0));
+    }
+}

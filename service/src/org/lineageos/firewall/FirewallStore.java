@@ -41,6 +41,7 @@ final class FirewallStore {
         mFeatures = features;
     }
 
+    /** Whether the firewall has saved its rules before; absent on its first start. */
     boolean exists() {
         return mFile.getBaseFile().exists();
     }

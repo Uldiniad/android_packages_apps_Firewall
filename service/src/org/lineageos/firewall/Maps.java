@@ -39,6 +39,7 @@ interface Maps {
     void setVpnRanges(int[] starts, int[] ends, int[] netIds);
     /** Writes the limits under which rules name the range; 0 deletes. */
     int setIp(int scope, byte[] address, int prefixLength, boolean allow, int limits);
+    int setLan(byte[] address, int prefixLength, int kind);
     /** Writes the domain's FirewallMaps.DOMAIN_* bits per limit for the scope; 0 deletes. */
     int setDomain(int scope, String domain, long bits);
     /**
@@ -119,6 +120,9 @@ interface Maps {
         @Override public int setIp(int scope, byte[] address, int prefixLength, boolean allow,
                 int limits) {
             return FirewallMaps.nativeSetIp(scope, address, prefixLength, allow, limits);
+        }
+        @Override public int setLan(byte[] address, int prefixLength, int kind) {
+            return FirewallMaps.nativeSetLan(address, prefixLength, kind);
         }
         @Override public int setDomain(int scope, String domain, long bits) {
             return FirewallMaps.nativeSetDomain(scope, domain, bits);

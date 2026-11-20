@@ -170,6 +170,7 @@ static __always_inline bool parse_l4(struct __sk_buff* skb, struct l4_info* info
 }
 
 #include "target_rules.h"
+#include "local_network.h"
 #include "socket_tags.h"
 
 // 127.0.0.0/8 and ::1, with IPv4-mapped addresses taken as IPv4.
@@ -200,6 +201,10 @@ static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 
     *parsed = parse_l4(skb, info, true);
     if ((blocked_all || blocked_here) && !(rules & FW_SCOPE_ALLOWS)) return true;
     if (!*parsed) return blocked_all || blocked_here;
+    if ((rules & FW_RULE_NO_LAN) && lan_via_vpn(path->ifindex, info)) {
+        *counter = FW_C_EGRESS_DROP_LAN;
+        return true;
+    }
     if ((rules & FW_SCOPE_ALLOWS) && scope_allows(uid, rules, info, path)) {
         count(FW_C_ALLOWED_BY_RULE);
         return false;

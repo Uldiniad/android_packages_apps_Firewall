@@ -27,6 +27,7 @@ final class FakeMaps implements Maps {
     final Map<Integer, List<Integer>> namedNetworks = new HashMap<>();
     final Map<Integer, Long> ifaces = new HashMap<>();
     final Map<Integer, Long> nets = new HashMap<>();
+    final Map<String, Integer> lan = new HashMap<>();
     final Map<Integer, Integer> userFlags = new HashMap<>();
     /** Rule entries, keyed "scope:block|allow:prefix", "scope:domain" and "scope:port/protocol". */
     final Set<String> ips = new HashSet<>();
@@ -67,6 +68,7 @@ final class FakeMaps implements Maps {
         namedNetworks.clear();
         ifaces.clear();
         nets.clear();
+        lan.clear();
         userFlags.clear();
         ips.clear();
         ipLimits.clear();
@@ -117,6 +119,15 @@ final class FakeMaps implements Maps {
                 if (limits != 0) ips.add(key); else ips.remove(key);
                 put(ipLimits, key, limits);
             }
+        } catch (UnknownHostException e) {
+            throw new IllegalArgumentException(e);
+        }
+        return 0;
+    }
+    @Override public int setLan(byte[] address, int prefixLength, int kind) {
+        try {
+            String key = new IpPrefix(InetAddress.getByAddress(address), prefixLength).toString();
+            if (kind == 0) lan.remove(key); else lan.put(key, kind);
         } catch (UnknownHostException e) {
             throw new IllegalArgumentException(e);
         }

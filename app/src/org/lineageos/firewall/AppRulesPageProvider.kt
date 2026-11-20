@@ -116,6 +116,7 @@ private fun AppRulesPage(packageName: String, userId: Int) {
         }
         TargetRules(packageName, userId)
         Category {
+            LocalNetworkPreference(userId)
             DataUsagePreference(userId)
         }
     }

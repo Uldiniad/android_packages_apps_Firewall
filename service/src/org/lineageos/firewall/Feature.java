@@ -74,6 +74,9 @@ abstract class Feature {
     /** Once the activity manager is ready: registers for what the feature follows. */
     void onBootPhase() {}
 
+    /** Before apps are synced again after package or user changes. */
+    void onResyncLocked() {}
+
     /** An app was installed; true if the store changed. */
     boolean onPackageAddedLocked(Pair<String, Integer> app, int uid) {
         return false;

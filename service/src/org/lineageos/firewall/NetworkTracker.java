@@ -34,6 +34,13 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
         long bitsOf(NetworkCapabilities nc, int transport);
     }
 
+    /** A feature that follows networks' link properties; called with the tracker's lock. */
+    interface LinkListener {
+        void onLinkProperties(int netId, int transport, LinkProperties lp);
+        void onLost(int netId);
+        void dump(PrintWriter pw);
+    }
+
     private final Map<Integer, Integer> mTransports = new HashMap<>();
     /** FirewallMaps.BLOCK_METERED and BLOCK_ROAMING, as each network is. */
     private final Map<Integer, Integer> mStates = new HashMap<>();
@@ -42,6 +49,7 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
     /** Each network's bits from the sources, as last written. */
     private final Map<Integer, Long> mSourceBits = new HashMap<>();
     private final List<BitsSource> mSources = new ArrayList<>();
+    private final List<LinkListener> mLinkListeners = new ArrayList<>();
     private final Map<Integer, Set<Integer>> mInterfaces = new HashMap<>();
     private final Map<Integer, Set<Range<Integer>>> mVpnUids = new HashMap<>();
     /** Networks apps may use: with internet access and not restricted. */
@@ -59,6 +67,10 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
 
     synchronized void addBitsSource(BitsSource source) {
         mSources.add(source);
+    }
+
+    synchronized void addLinkListener(LinkListener listener) {
+        mLinkListeners.add(listener);
     }
 
     void start(Context context) {
@@ -160,6 +172,11 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
             for (int ifindex : current) mMaps.setIface(ifindex, bits);
         }
         mInterfaces.put(netId, current);
+        if (transport != null) {
+            for (LinkListener listener : mLinkListeners) {
+                listener.onLinkProperties(netId, transport, lp);
+            }
+        }
     }
 
     @Override
@@ -177,6 +194,7 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
         mInterfaces.remove(netId);
         mUsable.remove(netId);
         mBypassableVpns.remove(netId);
+        for (LinkListener listener : mLinkListeners) listener.onLost(netId);
         mHandler.post(mOnChange);
     }
 
@@ -245,5 +263,6 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
         }
         pw.println("VPN UIDs: " + mVpnUids);
         pw.println("Usable: " + mUsable + ", bypassable VPNs: " + mBypassableVpns);
+        for (LinkListener listener : mLinkListeners) listener.dump(pw);
     }
 }

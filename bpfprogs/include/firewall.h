@@ -22,6 +22,7 @@
 // Addresses of allowed domains' answers, recently used ones kept when it fills.
 #define FW_LEARNED_SIZE 8192
 #define FW_DOMAIN_RULES_SIZE 262144
+#define FW_LAN_SIZE 256
 #define FW_REFUSALS_SIZE 65536
 #define FW_REFUSAL_STATS_SIZE 8192
 #define FW_NS_PER_MINUTE (60ULL * 1000 * 1000 * 1000)
@@ -34,6 +35,9 @@
 #define FW_RULE_BLOCK_VPN (1u << 3)
 #define FW_RULE_BLOCK_OTHER (1u << 4)
 #define FW_RULE_BLOCK_DNS (1u << 5)
+#define FW_RULE_NO_LAN (1u << 6)
+#define FW_LAN_LOCAL 1
+#define FW_LAN_DNS 2
 #define FW_RULE_TRANSPORTS \
     (FW_RULE_BLOCK_WIFI | FW_RULE_BLOCK_CELLULAR | FW_RULE_BLOCK_VPN | FW_RULE_BLOCK_OTHER)
 // Set for apps with choices for specific networks, kept in uid_networks.
@@ -89,6 +93,7 @@ enum fw_counter {
     FW_C_CONNECT_DENY,
     FW_C_DNS_SEEN,
     FW_C_EGRESS_DROP_DOMAIN,
+    FW_C_EGRESS_DROP_LAN,
     FW_C_EGRESS_DROP_PORT,
     FW_C_ALLOWED_BY_RULE,
     FW_COUNTER_MAX,
@@ -104,6 +109,7 @@ enum fw_counter {
 #define FW_REFUSED_USER_ADDRESS (1u << 5)
 #define FW_REFUSED_USER_PORT (1u << 6)
 #define FW_REFUSED_USER_DNS (1u << 7)
+#define FW_REFUSED_LAN (1u << 8)
 
 enum fw_refusal_direction {
     FW_REFUSAL_CONNECT,
@@ -145,6 +151,16 @@ struct fw_vpn_range {
     __u32 start;
     __u32 end;
     __u32 net_id;
+};
+
+struct fw_ip4_key {
+    __u32 prefixlen;
+    __u8 addr[4];
+};
+
+struct fw_ip6_key {
+    __u32 prefixlen;
+    __u8 addr[16];
 };
 
 // The scope leads the key and counts towards prefixlen.

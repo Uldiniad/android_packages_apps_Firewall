@@ -68,6 +68,8 @@ const std::vector<std::string> kMaps = {
         "scope_limits",
         "domain_rules",
         "uid_networks",
+        "lan4",
+        "lan6",
 };
 const std::vector<std::pair<std::string, bpf_attach_type>> kProgs = {
         {"egress", BPF_CGROUP_INET_EGRESS}, {"ingress", BPF_CGROUP_INET_INGRESS},
@@ -138,6 +140,7 @@ class FirewallBpfTest : public ::testing::Test {
                      "learned",
                      "scope_limits",
                      "uid_networks",
+                     "lan6",
              }) {
             mMaps[name].reset(mapRetrieveRW(mapPath(name).c_str()));
             ASSERT_LE(0, mMaps[name].get()) << name << ": " << strerror(errno);
@@ -501,6 +504,19 @@ TEST_F(FirewallBpfTest, DnsRuleBlocksTheAppsOwnDnsOnly) {
     EXPECT_EQ(EPERM, sendMulticast(53, dnsQuery("example.test")));
     EXPECT_EQ(EPERM, sendMulticast(853));
     EXPECT_EQ(0, sendMulticast(kPort));
+}
+
+TEST_F(FirewallBpfTest, LanThroughVpnHonorsTheDnsException) {
+    // Whatever else the VPN is, like metered.
+    setIfaceNetwork(FW_RULE_BLOCK_VPN | FW_RULE_BLOCK_METERED);
+    fw_ip6_key lan = {.prefixlen = 128};
+    inet_pton(AF_INET6, "ff02::1", lan.addr);
+    put("lan6", lan, uint32_t{FW_LAN_DNS});
+    setRules(0);
+    EXPECT_EQ(0, sendMulticast(kPort));
+    setRules(FW_RULE_NO_LAN);
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+    EXPECT_EQ(0, sendMulticast(53, dnsQuery("example.test")));
 }
 
 // netd's checks for the resolver, as the firewall's library makes them.

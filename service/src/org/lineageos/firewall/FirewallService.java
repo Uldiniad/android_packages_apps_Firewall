@@ -104,6 +104,7 @@ public final class FirewallService extends SystemService {
                 new LineageImport(this, storeDir),
                 new NewAppBlocking(this),
                 new TargetRules(this),
+                new LocalNetwork(this),
                 new RefusalCounts(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
@@ -203,6 +204,7 @@ public final class FirewallService extends SystemService {
     private void resync() {
         synchronized (this) {
             if (!mMapsReady) return;
+            for (Feature feature : mFeatures) feature.onResyncLocked();
             syncAppsLocked();
         }
     }

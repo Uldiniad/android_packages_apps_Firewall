@@ -84,6 +84,8 @@ class FirewallAppTest {
     fun tearDown() {
         device.pressHome()
         firewall.setAppRules(testPackage, userId, 0)
+        firewall.setPause(testPackage, userId, false, 0)
+        firewall.setSchedule(testPackage, userId, 0, 0, 0)
     }
 
     /** The app's own text, in the device's language. */
@@ -248,6 +250,31 @@ class FirewallAppTest {
             assertTrue(isOn(text("network_vpn")))
             firewall.setAppRules(testPackage, userId, IFirewall.BLOCK_VPN)
             waitUntil { !isOn(text("network_vpn")) }
+        }
+
+    @Test
+    fun appPageBlocksTheAppForAWhile() =
+        onPage("AppRules/$testPackage/$userId") {
+            find(text("pause_block_title")).click()
+            find(text("pause_1_hour")).click()
+            waitUntil {
+                firewall.getAppRulesForUser(userId).any {
+                    it.packageName == testPackage && it.pauseBlocks &&
+                        it.pauseUntil > System.currentTimeMillis()
+                }
+            }
+        }
+
+    @Test
+    fun schedulePageTurnsABedtimeScheduleOn() =
+        onPage("Schedule/$testPackage/$userId") {
+            find(text("schedule_switch")).click()
+            waitUntil {
+                firewall.getAppRulesForUser(userId).any {
+                    it.packageName == testPackage && it.scheduleDays == 0x7f &&
+                        it.scheduleStart == 22 * 60 && it.scheduleEnd == 7 * 60
+                }
+            }
         }
 
     @Test

@@ -94,6 +94,7 @@ private fun AppRulesPage(packageName: String, userId: Int) {
                 }
             }
         )
+        ScheduleEntries(packageName, userId, rule)
         Category(title = stringResource(R.string.networks_title)) {
             for (network in Network.entries) {
                 SwitchPreference(

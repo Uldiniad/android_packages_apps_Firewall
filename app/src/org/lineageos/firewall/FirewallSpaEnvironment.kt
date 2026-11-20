@@ -18,6 +18,7 @@ class FirewallSpaEnvironment(context: Context) : SpaEnvironment(context) {
                 listOf(
                     AppListPageProvider,
                     AppRulesPageProvider,
+                    SchedulePageProvider,
                 ),
             rootPages = listOf(AppListPageProvider.createSettingsPage()),
         )

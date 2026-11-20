@@ -88,6 +88,8 @@ public abstract class ServiceTestBase {
         return new ContextWrapper(InstrumentationRegistry.getInstrumentation().getContext()) {
             @Override
             public Object getSystemService(String name) {
+                // Alarms are the clock's to drive here, through onTime().
+                if (Context.ALARM_SERVICE.equals(name)) return null;
                 return Context.CONNECTIVITY_SERVICE.equals(name)
                         ? mConnectivity : super.getSystemService(name);
             }

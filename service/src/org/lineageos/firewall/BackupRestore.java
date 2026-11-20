@@ -171,6 +171,7 @@ final class BackupRestore extends Feature {
             if (mService.mapsReady()) {
                 mService.syncAppsLocked();
             }
+            for (Feature feature : mService.features()) feature.onRestoredLocked(userId);
         }
         mService.saveAsync();
     }

@@ -90,7 +90,8 @@ public final class FirewallService extends SystemService {
         thread.start();
         mHandler = new Handler(thread.getLooper());
         mNetworks = new NetworkTracker(maps, mHandler, this::onNetworksChanged);
-        mFeatures = List.of();
+        mFeatures = List.of(
+                new BackupRestore(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
 
@@ -561,6 +562,20 @@ public final class FirewallService extends SystemService {
         public void unregisterListener(IFirewallListener listener) {
             enforcePermission();
             unregisterListenerInternal(listener);
+        }
+
+        @Override
+        public byte[] getBackupPayload(int userId) {
+            enforceUser(userId);
+            return callAsSystem(() -> feature(BackupRestore.class).getBackupPayloadInternal(
+                    userId));
+        }
+
+        @Override
+        public void applyRestore(int userId, byte[] payload) {
+            enforceUser(userId);
+            runAsSystem(() -> feature(BackupRestore.class).applyRestoreInternal(userId,
+                    payload));
         }
 
         @Override

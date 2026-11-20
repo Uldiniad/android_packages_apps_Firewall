@@ -14,7 +14,7 @@ import android.os.UserManager
 
 /**
  * Hides the launcher icon in work profiles and private space, as Settings does: the personal
- * profile's app shows them in tabs. Their copy stays, for their notifications.
+ * profile's app shows them in tabs. Their copy stays, for their notifications and backups.
  */
 class UserInitializeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

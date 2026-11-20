@@ -28,4 +28,6 @@ interface IFirewall {
     /** Whether the firewall's programs are loaded and on; while not, apps aren't firewalled. */
     boolean isRunning();
 
+    byte[] getBackupPayload(int userId);
+    void applyRestore(int userId, in byte[] payload);
 }

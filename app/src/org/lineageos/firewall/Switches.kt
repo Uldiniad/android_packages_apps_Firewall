@@ -50,6 +50,7 @@ fun Context.rulesSummary(rule: AppRule?, usesInternet: Boolean): String =
 
 private fun Context.networkSummary(rule: AppRule?, usesInternet: Boolean): String {
     val rules = rule?.rules ?: 0
+    scheduleListSummary(rule)?.let { return it }
     if (rules and IFirewall.BLOCK_ALL != 0) {
         return getString(R.string.rules_blocked)
     }

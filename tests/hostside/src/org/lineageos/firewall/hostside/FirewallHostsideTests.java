@@ -60,6 +60,11 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
         return runDeviceTests(options(className, method, user));
     }
 
+    /** As run, but false rather than a failure when the device test fails, for polling. */
+    private boolean passes(String className, String method, int user) throws Exception {
+        return runDeviceTests(options(className, method, user).setCheckResults(false));
+    }
+
     private DeviceTestRunOptions options(String className, String method, int user) {
         DeviceTestRunOptions options = new DeviceTestRunOptions(PACKAGE)
                 .setTestClassName(PACKAGE + "." + className)
@@ -182,6 +187,32 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
         getDevice().reboot();
         assertTrue(run("HostChecks", "blocked", 0));
         setRules("none", 0);
+        assertTrue(run("HostChecks", "allowed", 0));
+    }
+
+    @Test
+    public void pausesBlockAnAppForAWhile() throws Exception {
+        shell("cmd firewall set-pause " + PACKAGE + " block 1");
+        try {
+            assertTrue(run("HostChecks", "blocked", 0));
+            // The service's alarm ends it.
+            waitUntil("The pause never ended", 120_000, () -> passes("HostChecks", "allowed", 0));
+        } finally {
+            shell("cmd firewall set-pause " + PACKAGE + " none");
+        }
+    }
+
+    @Test
+    public void schedulesBlockAnAppInTheirWindow() throws Exception {
+        String[] now = shell("date +%H:%M").trim().split(":");
+        int minute = Integer.parseInt(now[0]) * 60 + Integer.parseInt(now[1]);
+        String window = time(minute + 24 * 60 - 1) + " " + time(minute + 120);
+        shell("cmd firewall set-schedule " + PACKAGE + " mon,tue,wed,thu,fri,sat,sun " + window);
+        try {
+            assertTrue(run("HostChecks", "blocked", 0));
+        } finally {
+            shell("cmd firewall set-schedule " + PACKAGE + " none");
+        }
         assertTrue(run("HostChecks", "allowed", 0));
     }
 

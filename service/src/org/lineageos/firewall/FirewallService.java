@@ -96,6 +96,7 @@ public final class FirewallService extends SystemService {
         mNetworks = new NetworkTracker(maps, mHandler, this::onNetworksChanged);
         mFeatures = List.of(
                 new BackupRestore(this),
+                new Schedules(this),
                 new RefusalCounts(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
@@ -296,11 +297,12 @@ public final class FirewallService extends SystemService {
 
     private void writeAppsLocked() {
         Map<Integer, Integer> wanted = new HashMap<>();
+        long now = mClock.millis();
         for (Map.Entry<Pair<String, Integer>, Integer> app : mStore.apps.entrySet()) {
             // Also while hidden, archived, or on adoptable storage that is not mounted yet.
             int uid = knownUid(app.getKey());
             if (uid < 0) continue;
-            int rules = app.getValue();
+            int rules = rulesNowLocked(app.getKey(), app.getValue(), now);
             for (int each : withSdkSandbox(uid)) wanted.merge(each, rules, (a, b) -> a | b);
         }
         for (Feature feature : mFeatures) feature.writeAppsLocked(wanted);
@@ -447,6 +449,12 @@ public final class FirewallService extends SystemService {
         saveAsync();
     }
 
+    /** The app's rules at the time, as each feature changes them. */
+    int rulesNowLocked(Pair<String, Integer> app, int rules, long now) {
+        for (Feature feature : mFeatures) rules = feature.rulesNowLocked(app, rules, now);
+        return rules;
+    }
+
     private boolean forgetAppsLocked(Predicate<Pair<String, Integer>> gone) {
         boolean changed = false;
         for (Feature feature : mFeatures) changed |= feature.forgetAppsLocked(gone);
@@ -471,6 +479,8 @@ public final class FirewallService extends SystemService {
             rule.packageName = app.first;
             rule.rules = mStore.apps.getOrDefault(app, 0);
             for (Feature feature : mFeatures) feature.fillAppRuleLocked(app, rule);
+            rule.blockedNow = (rulesNowLocked(app, rule.rules, mClock.millis())
+                    & FirewallMaps.BLOCK_ALL) != 0;
             rules.add(rule);
         }
         return rules.toArray(new AppRule[0]);
@@ -548,6 +558,20 @@ public final class FirewallService extends SystemService {
         public void setAppRules(String packageName, int userId, int rules) {
             enforceUser(userId);
             runAsSystem(() -> setAppRulesInternal(packageName, userId, rules));
+        }
+
+        @Override
+        public void setPause(String packageName, int userId, boolean block, long until) {
+            enforceUser(userId);
+            runAsSystem(() -> feature(Schedules.class).setPauseInternal(packageName, userId,
+                    block, until));
+        }
+
+        @Override
+        public void setSchedule(String packageName, int userId, int days, int start, int end) {
+            enforceUser(userId);
+            runAsSystem(() -> feature(Schedules.class).setScheduleInternal(packageName, userId,
+                    days, start, end));
         }
 
         @Override

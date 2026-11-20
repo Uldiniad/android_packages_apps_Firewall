@@ -73,6 +73,11 @@ abstract class Feature {
     /** Adds the apps this feature has state for, which have rules even without switches. */
     void addAppsWithStateLocked(Set<Pair<String, Integer>> apps) {}
 
+    /** The app's switches at the time, as the feature changes them; rules by default. */
+    int rulesNowLocked(Pair<String, Integer> app, int rules, long now) {
+        return rules;
+    }
+
     /**
      * Adds the feature's bits to the uid map's rules, by uid, and writes the feature's own maps
      * for them, before the uid map gets the bits that enable those entries.
@@ -110,6 +115,9 @@ abstract class Feature {
 
     /** Applies the feature's part of a restored user, whose state was forgotten first. */
     void restoreUserLocked(int userId, Object part) {}
+
+    /** After a restore replaced the user's rules and synced them. */
+    void onRestoredLocked(int userId) {}
 
     /** Writes the feature's part of the dump. */
     void dumpLocked(PrintWriter pw) {}

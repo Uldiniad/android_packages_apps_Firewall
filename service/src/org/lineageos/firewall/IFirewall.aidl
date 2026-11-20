@@ -20,6 +20,13 @@ interface IFirewall {
     const int BLOCK_ROAMING = 131072;
 
     void setAppRules(String packageName, int userId, int rules);
+    /** Blocks the app, or allows it, until the time in milliseconds since the epoch; 0 ends it. */
+    void setPause(String packageName, int userId, boolean block, long until);
+    /**
+     * Blocks the app each week on the days, as bits from Monday, from the start to the end minute
+     * of the day, which is the next day's when before the start; no days clears it.
+     */
+    void setSchedule(String packageName, int userId, int days, int start, int end);
     int getAppRules(String packageName, int userId);
     AppRule[] getAppRulesForUser(int userId);
 

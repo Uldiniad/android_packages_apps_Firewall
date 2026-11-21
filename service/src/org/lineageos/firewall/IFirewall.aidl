@@ -68,4 +68,9 @@ interface IFirewall {
     boolean areNewInstallsBlocked(int userId);
     byte[] getBackupPayload(int userId);
     void applyRestore(int userId, in byte[] payload);
+
+    /** Turns the firewall on or off for the whole phone, which only an admin user can. */
+    void setEnabled(boolean enabled);
+    /** Whether the firewall is on; while it's off, no rules apply, though they can change. */
+    boolean isEnabled();
 }

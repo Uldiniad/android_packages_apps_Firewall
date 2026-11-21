@@ -97,6 +97,7 @@ final class FirewallMaps {
 
     static native boolean nativeInit();
     static native boolean nativeAttach();
+    static native boolean nativeDetach();
     static native void nativeClearRules();
     static native int nativeSetUid(int uid, int rules);
     static native int nativeSetNamedNetworks(int uid, int block, int allow);

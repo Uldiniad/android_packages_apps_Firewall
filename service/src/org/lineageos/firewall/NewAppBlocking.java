@@ -196,6 +196,15 @@ final class NewAppBlocking extends Feature {
         notified.remove(app);
     }
 
+    /** Tells the users about the apps that started blocked while the firewall was off. */
+    @Override
+    void onTurnedOnLocked() {
+        for (Pair<String, Integer> app : defaults) {
+            int uid = mService.packageUid(app, FirewallService.PACKAGE_FLAGS);
+            if (uid >= 0) notifyIfBlockedLocked(app, uid);
+        }
+    }
+
     @Override
     boolean forgetAppsLocked(Predicate<Pair<String, Integer>> gone) {
         defaults.retainAll(mService.store().apps.keySet());
@@ -250,6 +259,8 @@ final class NewAppBlocking extends Feature {
      * network: its first connection can't tell, as Android's resolver refuses its lookups.
      */
     boolean notifyIfBlockedLocked(Pair<String, Integer> app, int uid) {
+        // The app isn't blocked while the firewall is off, so it's told once it's back on.
+        if (mService.offLocked()) return false;
         if (!defaults.contains(app) || notified.contains(app)
                 || mService.context().checkPermission(Manifest.permission.INTERNET, -1, uid)
                         != PackageManager.PERMISSION_GRANTED) {

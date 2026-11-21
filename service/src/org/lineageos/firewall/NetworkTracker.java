@@ -123,6 +123,12 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
         }
     }
 
+    /** Writes every network and the VPN ranges again, after the maps were cleared. */
+    synchronized void rewrite() {
+        for (int netId : mTransports.keySet()) writeNet(netId);
+        writeVpnRanges();
+    }
+
     /** The capabilities of the networks the device is on. */
     synchronized List<NetworkCapabilities> connectedCapabilities() {
         return new ArrayList<>(mCapabilities.values());

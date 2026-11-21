@@ -22,6 +22,8 @@ interface Maps {
     boolean init();
     /** Switches the BPF programs on; true if they are, or already were. */
     boolean attach();
+    /** Switches the BPF programs off, leaving Connectivity's on; true if none is left on. */
+    boolean detach();
     /**
      * Whether Connectivity's programs know whose socket an app reaches over loopback, as they do
      * from Linux 5.10 on, and so keep an app with no network left to itself.
@@ -93,6 +95,7 @@ interface Maps {
     Maps NATIVE = new Maps() {
         @Override public boolean init() { return FirewallMaps.nativeInit(); }
         @Override public boolean attach() { return FirewallMaps.nativeAttach(); }
+        @Override public boolean detach() { return FirewallMaps.nativeDetach(); }
         @Override public boolean knowsLoopbackReceivers() {
             String[] version = Os.uname().release.split("[.-]", 3);
             int major = Integer.parseInt(version[0]);

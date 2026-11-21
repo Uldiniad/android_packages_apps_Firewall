@@ -43,7 +43,8 @@ object Firewall {
 
 
 
-    fun running() = load { isRunning() }
+    /** Whether the firewall runs as it should: running, or off as an admin chose. */
+    fun running() = load { isRunning() || !isEnabled() }
 
 
     suspend fun <T> call(change: IFirewall.() -> T): T =

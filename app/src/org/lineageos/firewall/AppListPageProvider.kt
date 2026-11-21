@@ -114,5 +114,6 @@ private fun UserSettings(userId: Int) {
     Category {
         NewAppsPreferences(userId)
         AllAppsRulesEntry(userId)
+        ExportImportEntry(userId)
     }
 }

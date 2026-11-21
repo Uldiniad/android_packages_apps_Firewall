@@ -23,6 +23,7 @@ class FirewallSpaEnvironment(context: Context) : SpaEnvironment(context) {
                     AddAppRulesPageProvider,
                     AllAppsRulesPageProvider,
                     AddRulesPageProvider,
+                    ExportImportPageProvider,
                 ),
             rootPages = listOf(AppListPageProvider.createSettingsPage()),
         )

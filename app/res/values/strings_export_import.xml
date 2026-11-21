@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Entry for one user or profile, and the title of its page: their rules saved to a file, or replaced with a file's. -->
+    <string name="export_import_title">Export and import</string>
+    <string name="export_import_summary">Save these rules to a file, or replace them with a file\'s</string>
+    <string name="export_rules">Export rules</string>
+    <string name="export_rules_summary">Save these rules to a file</string>
+    <string name="import_rules">Import rules</string>
+    <string name="import_rules_summary">Replace these rules with the ones in a file</string>
+    <!-- Asked before Android's file picker opens for an import. -->
+    <string name="import_rules_title">Replace these rules?</string>
+    <string name="import_rules_text">The rules in the file you choose replace all of the rules here, including the rules for all apps.</string>
+    <string name="choose_file">Choose file</string>
+    <string name="rules_exported">Rules exported</string>
+    <string name="export_failed">Couldn\'t export rules</string>
+    <string name="rules_imported">Rules imported</string>
+    <string name="import_failed_title">Couldn\'t import rules</string>
+    <string name="import_failed_text">This file isn\'t a firewall rules export, or it can\'t be read.</string>
+    <string name="export_import_footer">Rules for an app that another developer signed aren\'t imported. An app that isn\'t installed gets its rules once it is.</string>
+    <!-- The name Android's file picker suggests for an export. -->
+    <string name="export_file_name" translatable="false">firewall-rules.xml</string>
+</resources>

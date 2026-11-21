@@ -89,15 +89,16 @@ final class FirewallBackup {
         try {
             XmlPullParser parser = Xml.newPullParser();
             parser.setInput(new ByteArrayInputStream(payload), StandardCharsets.UTF_8.name());
+            // Any other document, as a file someone picks can be, isn't an empty backup.
+            parser.nextTag();
+            parser.require(XmlPullParser.START_TAG, null, "firewall-backup");
+            for (Feature feature : features) {
+                backup.user.put(feature, feature.readBackupAttributes(parser, true));
+            }
             int type;
             while ((type = parser.next()) != XmlPullParser.END_DOCUMENT) {
                 if (type != XmlPullParser.START_TAG) continue;
                 switch (parser.getName()) {
-                    case "firewall-backup" -> {
-                        for (Feature feature : features) {
-                            backup.user.put(feature, feature.readBackupAttributes(parser, true));
-                        }
-                    }
                     case "app" -> backup.apps.add(readApp(parser, features));
                     default -> {
                         for (Feature feature : features) {

@@ -9,6 +9,7 @@ import android.Manifest
 import android.app.admin.DevicePolicyManager
 import android.app.admin.DevicePolicyResources
 import android.content.ComponentName
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -17,6 +18,7 @@ import android.os.ServiceManager
 import android.os.UserHandle
 import android.os.UserManager
 import android.platform.uiautomatoraccessibility.PlatformUiAutomatorAccessibilityTestRule
+import android.provider.MediaStore
 import android.provider.Settings
 import android.service.notification.StatusBarNotification
 import android.view.KeyEvent
@@ -28,6 +30,8 @@ import androidx.test.uiautomator.Condition
 import androidx.test.uiautomator.Direction
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
+import androidx.test.uiautomator.UiScrollable
+import androidx.test.uiautomator.UiSelector
 import androidx.test.uiautomator.Until
 import com.android.compatibility.common.util.PollingCheck
 import com.android.compatibility.common.util.SystemUtil
@@ -53,6 +57,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.hamcrest.Matchers.allOf
 import org.hamcrest.Matchers.`is`
+import org.hamcrest.Matchers.isOneOf
 
 /**
  * Drives the installed firewall app against the real service, with this test app as the app to
@@ -80,6 +85,20 @@ class FirewallAppTest {
                     AccessibilityCheckResultUtils.matchesCheck(TouchTargetSizeCheck::class.java),
                     AccessibilityCheckResultUtils.matchesElements(
                         ElementMatchers.withResourceName(`is`(SYSTEMUI_BATTERY))
+                    ),
+                )
+            )
+            // Android's file picker, which the export and import tests open: the 1dp dividers
+            // between its groups of places, and its tabs for profiles.
+            it.addSuppressingResultMatcher(
+                allOf(
+                    AccessibilityCheckResultUtils.matchesCheck(TouchTargetSizeCheck::class.java),
+                    AccessibilityCheckResultUtils.matchesElements(
+                        ElementMatchers.isDescendantOfA(
+                            ElementMatchers.withResourceName(
+                                isOneOf(DOCUMENTS_UI_PLACES, DOCUMENTS_UI_TABS)
+                            )
+                        )
                     ),
                 )
             )
@@ -313,6 +332,73 @@ class FirewallAppTest {
         onPage("AppList") {
             assertFalse(rowOf(text("main_switch_title")).isEnabled)
             find(text("main_switch_admin_only"))
+        }
+    }
+
+    @Test
+    fun rulesExportedFromOneUserImportIntoAProfile() {
+        // A name of its own: the Downloads folder lists each export it saved until its entry goes.
+        val name = "firewall-rules-${System.currentTimeMillis()}.xml"
+        firewall.setAppRules(testPackage, userId, IFirewall.BLOCK_WIFI)
+        withWorkProfile { profile ->
+            try {
+                runShellCommand("pm install-existing --user $profile $testPackage")
+                onPage("ExportImport/$userId") {
+                    find(text("export_rules")).click()
+                    openDownloadsInPicker()
+                    find(By.res("android:id/title").clazz(EDIT_TEXT), "file name").text = name
+                    find(By.res("android:id/button1"), "file picker's save button").click()
+                    waitUntil {
+                        (runShellCommand("stat -c %s $DOWNLOAD_DIR/$name").trim().toIntOrNull()
+                            ?: 0) > 0
+                    }
+                }
+                onPage("ExportImport/$profile") {
+                    find(text("import_rules")).click()
+                    find(text("choose_file")).click()
+                    openDownloadsInPicker()
+                    pickFile(name)
+                    waitUntil {
+                        acrossUsers { firewall.getAppRules(testPackage, profile) } ==
+                            IFirewall.BLOCK_WIFI
+                    }
+                }
+            } finally {
+                // Through the provider, which removes the file with its Downloads entry.
+                runShellCommand(
+                    "content delete --uri content://downloads/all_downloads --where title='$name'"
+                )
+                runShellCommand("rm -f $DOWNLOAD_DIR/$name")
+            }
+        }
+    }
+
+    @Test
+    fun importRefusesAFileThatIsNotAnExport() {
+        val values =
+            ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, NOT_AN_EXPORT)
+                put(MediaStore.Downloads.MIME_TYPE, "text/xml")
+            }
+        val file =
+            checkNotNull(
+                context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            )
+        try {
+            checkNotNull(context.contentResolver.openOutputStream(file)).use {
+                it.write("<notes><note>Not rules</note></notes>".toByteArray())
+            }
+            firewall.setAppRules(testPackage, userId, IFirewall.BLOCK_WIFI)
+            onPage("ExportImport/$userId") {
+                find(text("import_rules")).click()
+                find(text("choose_file")).click()
+                openDownloadsInPicker()
+                pickFile(NOT_AN_EXPORT)
+                find(text("import_failed_title"))
+            }
+            assertEquals(IFirewall.BLOCK_WIFI, firewall.getAppRules(testPackage, userId))
+        } finally {
+            context.contentResolver.delete(file, null, null)
         }
     }
 
@@ -798,6 +884,41 @@ class FirewallAppTest {
         )
     }
 
+    /** Another app's text, in the device's language, as that app shows it. */
+    private fun textOf(packageName: String, name: String): String {
+        val resources = context.packageManager.getResourcesForApplication(packageName)
+        return resources.getString(resources.getIdentifier(name, "string", packageName))
+    }
+
+    /** Shows the Downloads folder in Android's file picker, as DocumentsUI's own tests open one. */
+    private fun openDownloadsInPicker() {
+        find(By.desc(textOf(DOCUMENTS_UI, "drawer_open")), "file picker's places").click()
+        clickInList(
+            UiSelector()
+                .resourceId("$DOCUMENTS_UI:id/container_roots")
+                .childSelector(UiSelector().resourceId(DOCUMENTS_UI_PLACES)),
+            textOf(DOWNLOAD_PROVIDER, "root_downloads"),
+        )
+    }
+
+    /** Picks the file in the folder Android's file picker shows. */
+    private fun pickFile(name: String) =
+        clickInList(
+            UiSelector()
+                .resourceId("$DOCUMENTS_UI:id/container_directory")
+                .childSelector(UiSelector().resourceId("$DOCUMENTS_UI:id/dir_list")),
+            name,
+        )
+
+    /** Clicks the list's item with the text, found anew on the click, as the lists redraw. */
+    private fun clickInList(list: UiSelector, text: String) {
+        assertTrue(device.findObject(list.childSelector(UiSelector())).waitForExists(TIMEOUT))
+        UiScrollable(list).scrollIntoView(UiSelector().text(text))
+        // Unchecked, as in DocumentsUI's tests: a pick closes the picker, which the click can't
+        // see, so what the click did is checked after.
+        device.findObject(list.childSelector(UiSelector().text(text))).click()
+    }
+
     /** Runs the steps with a new work profile of this user, removed after. */
     private fun withWorkProfile(steps: (Int) -> Unit) = withProfile("--managed", steps)
 
@@ -835,6 +956,12 @@ class FirewallAppTest {
     private companion object {
         const val APP = "org.lineageos.firewall"
         const val SETTINGS = "com.android.settings"
+        const val DOCUMENTS_UI = "com.android.documentsui"
+        const val DOCUMENTS_UI_PLACES = "com.android.documentsui:id/roots_list"
+        const val DOCUMENTS_UI_TABS = "com.android.documentsui:id/tabs"
+        const val DOWNLOAD_PROVIDER = "com.android.providers.downloads"
+        const val DOWNLOAD_DIR = "/sdcard/Download"
+        const val NOT_AN_EXPORT = "not-firewall-rules.xml"
         const val SYSTEMUI_BATTERY = "com.android.systemui:id/battery_meter_composable_view"
         const val NO_INTERNET = "org.lineageos.firewall.hostside.nointernet"
         val PERMISSION_CONTROLLER: Pattern = Pattern.compile(".*permissioncontroller")

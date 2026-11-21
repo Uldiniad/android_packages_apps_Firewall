@@ -6,6 +6,7 @@
 package org.lineageos.firewall;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
 import android.util.Pair;
 
@@ -34,6 +35,18 @@ public class BackupRestoreTest extends ServiceTestBase {
                 .replaceAll("certs=\"[^\"]*\"", "certs=\"" + "00".repeat(32) + "\"");
         backups.applyRestoreInternal(0, otherSigner.getBytes(StandardCharsets.UTF_8));
         assertEquals(0, service.getAppRulesInternal(PACKAGE, 0));
+    }
+
+    @Test
+    public void anotherDocumentIsRefusedAndChangesNothing() {
+        FirewallService service = start();
+        BackupRestore backups = service.feature(BackupRestore.class);
+        service.setAppRulesInternal(PACKAGE, 0, FirewallMaps.BLOCK_CELLULAR);
+        byte[] other = ("<rules><app package=\"" + PACKAGE + "\" rules=\"0\"/></rules>")
+                .getBytes(StandardCharsets.UTF_8);
+        assertThrows(IllegalArgumentException.class,
+                () -> backups.applyRestoreInternal(0, other));
+        assertEquals(FirewallMaps.BLOCK_CELLULAR, service.getAppRulesInternal(PACKAGE, 0));
     }
 
     @Test

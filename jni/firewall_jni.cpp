@@ -58,19 +58,23 @@ constexpr struct {
         {FW_PROG_PATH("connect6"), BPF_CGROUP_INET6_CONNECT},
 };
 
-// Switches the programs on for every app, on the cgroup root alongside Connectivity's. They outlive
-// the system server and the kernel refuses a second copy, so they are re-attached as netd does.
-jboolean nativeAttach(JNIEnv*, jclass) {
+// The cgroup root, where the programs go alongside Connectivity's.
+unique_fd openCgroupRoot() {
     std::string path;
     if (!CgroupGetControllerPath(CGROUPV2_HIERARCHY_NAME, &path)) {
         ALOGE("no cgroup v2 hierarchy");
-        return false;
+        return {};
     }
     unique_fd cgroup(open(path.c_str(), O_DIRECTORY | O_RDONLY | O_CLOEXEC));
-    if (!cgroup.ok()) {
-        ALOGE("open %s: %s", path.c_str(), strerror(errno));
-        return false;
-    }
+    if (!cgroup.ok()) ALOGE("open %s: %s", path.c_str(), strerror(errno));
+    return cgroup;
+}
+
+// Switches the programs on for every app. They outlive the system server and the kernel refuses a
+// second copy, so they are re-attached as netd does.
+jboolean nativeAttach(JNIEnv*, jclass) {
+    unique_fd cgroup = openCgroupRoot();
+    if (!cgroup.ok()) return false;
     bool attached = true;
     for (const auto& prog : kPrograms) {
         unique_fd fd(android::bpf::retrieveProgram(prog.path));
@@ -81,6 +85,22 @@ jboolean nativeAttach(JNIEnv*, jclass) {
         }
     }
     return attached;
+}
+
+// Switches the programs off for every app; Connectivity's stay on.
+jboolean nativeDetach(JNIEnv*, jclass) {
+    unique_fd cgroup = openCgroupRoot();
+    if (!cgroup.ok()) return false;
+    bool detached = true;
+    for (const auto& prog : kPrograms) {
+        unique_fd fd(android::bpf::retrieveProgram(prog.path));
+        if (fd.ok() && android::bpf::detachSingleProgram(prog.type, fd, cgroup) &&
+            errno != ENOENT) {
+            ALOGE("detach %s: %s", prog.path, strerror(errno));
+            detached = false;
+        }
+    }
+    return detached;
 }
 
 void nativeClearRules(JNIEnv*, jclass) {
@@ -138,6 +158,7 @@ jlongArray nativeCounters(JNIEnv* env, jclass) {
 const JNINativeMethod kMethods[] = {
         {"nativeInit", "()Z", reinterpret_cast<void*>(nativeInit)},
         {"nativeAttach", "()Z", reinterpret_cast<void*>(nativeAttach)},
+        {"nativeDetach", "()Z", reinterpret_cast<void*>(nativeDetach)},
         {"nativeClearRules", "()V", reinterpret_cast<void*>(nativeClearRules)},
         {"nativeSetUid", "(II)I", reinterpret_cast<void*>(nativeSetUid)},
         {"nativeSetIface", "(IJ)I", reinterpret_cast<void*>(nativeSetIface)},

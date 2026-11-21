@@ -105,7 +105,8 @@ public final class FirewallService extends SystemService {
                 new NewAppBlocking(this),
                 new TargetRules(this),
                 new LocalNetwork(this),
-                new RefusalCounts(this));
+                new RefusalCounts(this),
+                new MainSwitch(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
 
@@ -166,7 +167,6 @@ public final class FirewallService extends SystemService {
     void init() {
         mMapsReady = mMaps.init();
         mKnowsLoopbackReceivers = mMaps.knowsLoopbackReceivers();
-        mAttached = mMapsReady && mMaps.attach();
         mConnectivity = mContext.getSystemService(ConnectivityManager.class);
         synchronized (this) {
             boolean firstStart = !mStore.exists();
@@ -184,15 +184,52 @@ public final class FirewallService extends SystemService {
             if (mMapsReady) {
                 mMaps.clearRules();
                 for (Feature feature : mFeatures) feature.onMapsClearedLocked();
-                syncAppsLocked();
-                replaceOemDenyChainLocked();
-                for (Feature feature : mFeatures) feature.onStartSyncedLocked();
+                if (offLocked()) {
+                    // The programs outlive the system server, so a restart may find them on.
+                    mAttached = !mMaps.detach();
+                    emptyOemDenyChainLocked();
+                } else {
+                    enforceLocked();
+                }
             }
         }
         Log.i(TAG, "Started: maps " + (mMapsReady ? "ready" : "missing") + ", programs "
                 + (mAttached ? "attached" : "not attached") + ", "
                 + mStore.apps.size() + " app rules");
         for (Feature feature : mFeatures) feature.onStarted();
+    }
+
+    /** Whether an admin turned the firewall off, so nothing goes to the maps or the chain. */
+    boolean offLocked() {
+        return feature(MainSwitch.class).off;
+    }
+
+    /** Switches the programs on and writes the rules to the maps and the OEM deny chain. */
+    private void enforceLocked() {
+        mAttached = mMaps.attach();
+        syncAppsLocked();
+        replaceOemDenyChainLocked();
+        for (Feature feature : mFeatures) feature.onStartSyncedLocked();
+    }
+
+    /** Switches the programs off and empties the maps and the OEM deny chain; rules stay. */
+    void turnOffLocked() {
+        if (!mMapsReady) return;
+        mAttached = !mMaps.detach();
+        mMaps.clearRules();
+        mUidRules.clear();
+        mNoLoopback.clear();
+        emptyOemDenyChainLocked();
+    }
+
+    /** Writes everything again, as a start does, with the programs back on. */
+    void turnOnLocked() {
+        if (!mMapsReady) return;
+        mMaps.clearRules();
+        mNetworks.rewrite();
+        for (Feature feature : mFeatures) feature.onMapsClearedLocked();
+        enforceLocked();
+        for (Feature feature : mFeatures) feature.onTurnedOnLocked();
     }
 
     @Override
@@ -340,6 +377,7 @@ public final class FirewallService extends SystemService {
 
     /** Writes the rules for all of the user's apps, entries before the flags that enable them. */
     void syncUserLocked(int userId) {
+        if (offLocked()) return;
         if (beforeSyncLocked()) {
             syncEverythingLocked();
             return;
@@ -368,6 +406,7 @@ public final class FirewallService extends SystemService {
     }
 
     void syncAppsLocked() {
+        if (offLocked()) return;
         if (beforeSyncLocked()) {
             syncEverythingLocked();
             return;
@@ -494,6 +533,23 @@ public final class FirewallService extends SystemService {
             mOemDenyUids.addAll(uids);
         } catch (RuntimeException e) {
             Log.e(TAG, "Failed to update the OEM deny chain", e);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    /** Takes every app off the OEM deny chain and switches the chain off. */
+    private void emptyOemDenyChainLocked() {
+        mOemDenyReady = false;
+        mOemDenyUids.clear();
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            mConnectivity.replaceFirewallChain(ConnectivityManager.FIREWALL_CHAIN_OEM_DENY_1,
+                    new int[0]);
+            mConnectivity.setFirewallChainEnabled(ConnectivityManager.FIREWALL_CHAIN_OEM_DENY_1,
+                    false);
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Failed to empty the OEM deny chain", e);
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
@@ -752,6 +808,23 @@ public final class FirewallService extends SystemService {
         public boolean isRunning() {
             enforcePermission();
             return isRunningInternal();
+        }
+
+        @Override
+        public void setEnabled(boolean enabled) {
+            enforcePermission();
+            int userId = UserHandle.getUserHandleForUid(Binder.getCallingUid()).getIdentifier();
+            if (!callAsSystem(() -> mContext.getSystemService(UserManager.class)
+                    .isUserAdmin(userId))) {
+                throw new SecurityException("Only an admin user can turn the firewall on or off");
+            }
+            runAsSystem(() -> feature(MainSwitch.class).setEnabledInternal(enabled));
+        }
+
+        @Override
+        public boolean isEnabled() {
+            enforcePermission();
+            return feature(MainSwitch.class).isEnabledInternal();
         }
 
         @Override

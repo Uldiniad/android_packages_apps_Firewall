@@ -925,4 +925,53 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
             shell("rm -f " + backup);
         }
     }
+
+    @Test
+    public void offLetsAppsThroughUntilTheFirewallIsBackOn() throws Exception {
+        setRules("all", 0);
+        try {
+            shell("cmd firewall set-enabled false");
+            assertTrue(run("HostChecks", "allowed", 0));
+            assertTrue(run("HostChecks", "looksUp", 0));
+        } finally {
+            shell("cmd firewall set-enabled true");
+        }
+        assertTrue(run("HostChecks", "blocked", 0));
+    }
+
+    @Test
+    public void theFirewallStaysOffAfterAReboot() throws Exception {
+        setRules("all", 0);
+        shell("cmd firewall set-enabled false");
+        try {
+            getDevice().reboot();
+            assertEquals("false", shell("cmd firewall get-enabled").trim());
+            assertTrue(run("HostChecks", "allowed", 0));
+            // Off as an admin chose, the firewall isn't failing to run.
+            shell("am wait-for-broadcast-idle");
+            assertFalse(shell("dumpsys notification --noredact")
+                    .contains("0|" + FIREWALL_APP + "|2|not_running|"));
+        } finally {
+            shell("cmd firewall set-enabled true");
+        }
+    }
+
+    @Test
+    public void onlyAnAdminUserCanTurnTheFirewallOff() throws Exception {
+        int user = getDevice().createUser("fwnotadmin");
+        try {
+            assertTrue(getDevice().startUser(user, true));
+            shell("pm install-existing --user " + user + " " + APP_TESTS);
+            // Only the foreground user's apps show their pages.
+            assertTrue(getDevice().switchUser(user));
+            assertTrue(runDeviceTests(new DeviceTestRunOptions(APP_TESTS)
+                    .setUserId(user)
+                    .setTestClassName(FIREWALL_APP + ".FirewallAppTest")
+                    .setTestMethodName("nonAdminsSeeTheMainSwitchGreyed")));
+        } finally {
+            getDevice().switchUser(0);
+            shell("pm remove-user --wait " + user);
+        }
+        assertEquals("true", shell("cmd firewall get-enabled").trim());
+    }
 }

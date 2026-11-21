@@ -38,7 +38,10 @@ object NotRunningNotification {
         // Without the service there are no rules to read, and none applied either.
         val service =
             ServiceManager.getService("firewall")?.let { IFirewall.Stub.asInterface(it) }
-        if (service != null && (service.isRunning() || !hasRules(service, context.userId))) {
+        if (
+            service != null &&
+                (service.isRunning() || !service.isEnabled() || !hasRules(service, context.userId))
+        ) {
             return
         }
         val text = context.getString(R.string.not_running_text)

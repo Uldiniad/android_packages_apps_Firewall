@@ -102,6 +102,7 @@ private fun UserSettings(userId: Int) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val running by remember { Firewall.running() }.collectAsStateWithLifecycle(true)
+    FirewallMainSwitch()
     if (!running) {
         StatusBannerPreference(
             object : StatusBannerPreferenceModel {

@@ -15,6 +15,7 @@ import android.content.pm.PackageManager
 import android.os.Process
 import android.os.ServiceManager
 import android.os.UserHandle
+import android.os.UserManager
 import android.platform.uiautomatoraccessibility.PlatformUiAutomatorAccessibilityTestRule
 import android.provider.Settings
 import android.service.notification.StatusBarNotification
@@ -42,6 +43,8 @@ import java.util.function.Supplier
 import java.util.regex.Pattern
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeFalse
 import org.junit.Assume.assumeTrue
@@ -268,8 +271,49 @@ class FirewallAppTest {
     /** Runs once the host test of the firewall's warnings stops it, and is skipped otherwise. */
     @Test
     fun homePageWarnsWhileTheFirewallIsNotRunning() {
-        assumeFalse("The firewall is running", firewall.isRunning)
+        assumeFalse("The firewall is running or off", firewall.isRunning || !firewall.isEnabled)
         onPage("AppList") { find(text("firewall_not_running")) }
+    }
+
+    @Test
+    fun mainSwitchTurnsTheFirewallOffAndOn() {
+        try {
+            onPage("AppList") {
+                find(text("main_switch_title")).click()
+                waitUntil { !firewall.isEnabled }
+                waitUntil { !isOn(text("main_switch_title")) }
+                // Off as an admin chose, the firewall isn't failing to run.
+                assertFalse(device.hasObject(By.text(text("firewall_not_running"))))
+                find(text("main_switch_title")).click()
+                waitUntil { firewall.isEnabled }
+            }
+        } finally {
+            firewall.setEnabled(true)
+        }
+    }
+
+    @Test
+    fun rulesStayEditableWhileTheFirewallIsOff() {
+        firewall.setEnabled(false)
+        try {
+            onPage("AppRules/$testPackage/$userId") {
+                find(text("allow_network_access")).click()
+                waitUntil { firewall.getAppRules(testPackage, userId) == IFirewall.BLOCK_ALL }
+            }
+        } finally {
+            firewall.setEnabled(true)
+        }
+    }
+
+    /** Runs in a user who isn't an admin, which a host test makes, and is skipped otherwise. */
+    @Test
+    fun nonAdminsSeeTheMainSwitchGreyed() {
+        assumeFalse("An admin user", context.getSystemService(UserManager::class.java).isAdminUser)
+        assertThrows(SecurityException::class.java) { firewall.setEnabled(false) }
+        onPage("AppList") {
+            assertFalse(rowOf(text("main_switch_title")).isEnabled)
+            find(text("main_switch_admin_only"))
+        }
     }
 
     @Test

@@ -71,6 +71,9 @@ abstract class Feature {
     /** After the start's first sync of apps and the OEM deny chain. */
     void onStartSyncedLocked() {}
 
+    /** The main switch turned the firewall back on, and everything was written again. */
+    void onTurnedOnLocked() {}
+
     /** Once the activity manager is ready: registers for what the feature follows. */
     void onBootPhase() {}
 

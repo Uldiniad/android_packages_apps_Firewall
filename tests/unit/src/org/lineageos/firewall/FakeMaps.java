@@ -59,9 +59,18 @@ final class FakeMaps implements Maps {
     boolean ready = true;
     /** Whether the kernel lets Connectivity know whose socket an app reaches over loopback. */
     boolean knowsLoopbackReceivers;
+    /** Whether the programs are on, which they stay across a restart of the service. */
+    boolean attached;
 
     @Override public boolean init() { return ready; }
-    @Override public boolean attach() { return true; }
+    @Override public boolean attach() {
+        attached = true;
+        return true;
+    }
+    @Override public boolean detach() {
+        attached = false;
+        return true;
+    }
     @Override public boolean knowsLoopbackReceivers() { return knowsLoopbackReceivers; }
     @Override public void clearRules() {
         uids.clear();

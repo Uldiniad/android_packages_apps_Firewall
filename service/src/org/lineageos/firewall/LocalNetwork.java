@@ -51,6 +51,11 @@ final class LocalNetwork extends Feature implements NetworkTracker.LinkListener 
     @Override
     void onMapsClearedLocked() {
         scanLocalNetworkLocked();
+        // The subnets come with the networks, under the tracker's lock.
+        synchronized (mService.networks()) {
+            mLanWritten.clear();
+            writeLan();
+        }
     }
 
     @Override

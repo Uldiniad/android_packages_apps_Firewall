@@ -63,4 +63,10 @@ public class HostChecks {
         assertTrue("No usable network", Firewall.waitForUsableNetwork(30_000));
         assertTrue(Firewall.tcpConnects("1.1.1.1", 443));
     }
+
+    /** Android's resolver answers this app's lookups. */
+    @Test
+    public void looksUp() throws Exception {
+        assertTrue(Firewall.looksUp("example.org", 15_000));
+    }
 }

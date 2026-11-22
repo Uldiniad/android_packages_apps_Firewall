@@ -106,7 +106,8 @@ public final class FirewallService extends SystemService {
                 new TargetRules(this),
                 new LocalNetwork(this),
                 new RefusalCounts(this),
-                new MainSwitch(this));
+                new MainSwitch(this),
+                new BlockLists(this, storeDir));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
 
@@ -831,6 +832,49 @@ public final class FirewallService extends SystemService {
         public boolean areNewInstallsBlocked(int userId) {
             enforceUser(userId);
             return feature(NewAppBlocking.class).areNewInstallsBlockedInternal(userId);
+        }
+
+        @Override
+        public FirewallList[] getLists(int userId) {
+            enforceUser(userId);
+            return feature(BlockLists.class).getListsInternal(userId);
+        }
+
+        @Override
+        public String addList(int userId, String packageName, String url, boolean subdomains) {
+            enforceUser(userId);
+            return callAsSystem(() -> feature(BlockLists.class)
+                    .addListInternal(userId, packageName, url, subdomains));
+        }
+
+        @Override
+        public String addListFromFile(int userId, String packageName, String title,
+                ParcelFileDescriptor content) {
+            enforceUser(userId);
+            return callAsSystem(() -> feature(BlockLists.class)
+                    .addListFromFileInternal(userId, packageName, title, content));
+        }
+
+        @Override
+        public void removeList(int userId, String packageName, String id) {
+            enforceUser(userId);
+            runAsSystem(() ->
+                    feature(BlockLists.class).removeListInternal(userId, packageName, id));
+        }
+
+        @Override
+        public int setListContent(String id, ParcelFileDescriptor content, String title,
+                String version, String etag, String lastModified) {
+            enforcePermission();
+            return callAsSystem(() -> feature(BlockLists.class)
+                    .setListContentInternal(id, content, title, version, etag, lastModified));
+        }
+
+        @Override
+        public void setListChecked(String id, int error, int errorDetail) {
+            enforcePermission();
+            runAsSystem(() ->
+                    feature(BlockLists.class).setListCheckedInternal(id, error, errorDetail));
         }
 
         @Override

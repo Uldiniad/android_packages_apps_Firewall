@@ -54,6 +54,12 @@ interface Maps {
     int setLimits(int scope, long[] only, long[] except);
     /** Drops the addresses learned from answers for the scope's allowed domains. */
     void forgetLearned(int scope);
+    /** The slots of the lists the scope subscribes to, as bits; 0 deletes. */
+    int setScopeLists(int scope, long slots);
+    /** The slots of the address lists holding the range, as bits; 0 deletes. */
+    int setListRange(byte[] address, int prefixLength, long slots);
+    /** The generation of the slot's file of domains, which netd maps; 0 is none. */
+    int setListFile(int slot, int generation);
     long[] counters();
     /** A descriptor that is readable when refusals are waiting; null without one. */
     FileDescriptor refusalsFd();
@@ -142,6 +148,15 @@ interface Maps {
         }
         @Override public void forgetLearned(int scope) {
             FirewallMaps.nativeForgetLearned(scope);
+        }
+        @Override public int setScopeLists(int scope, long slots) {
+            return FirewallMaps.nativeSetScopeLists(scope, slots);
+        }
+        @Override public int setListRange(byte[] address, int prefixLength, long slots) {
+            return FirewallMaps.nativeSetListRange(address, prefixLength, slots);
+        }
+        @Override public int setListFile(int slot, int generation) {
+            return FirewallMaps.nativeSetListFile(slot, generation);
         }
         @Override public long[] counters() { return FirewallMaps.nativeCounters(); }
         @Override public FileDescriptor refusalsFd() { return FirewallMaps.nativeRefusalsFd(); }

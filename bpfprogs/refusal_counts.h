@@ -51,6 +51,7 @@ static __always_inline __u32 refusal_reasons(__u32 uid, __u32 rules, __u8 direct
         (port_bits(user_scope, uflags, info, path) & FW_PORT_BLOCK)) {
         reasons |= FW_REFUSED_USER_PORT;
     }
+    reasons |= list_reasons(uid, rules, user_scope, uflags, info);
     if (direction != FW_REFUSAL_OUT) return reasons;
     bool dns = info->port == 53 || info->port == 853 ||
                listed(&ip4_block, &ip6_block, FW_DOH_SCOPE, 0, info, path);

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Lists of domains and IP addresses to block, as a tab beside the kinds of rules, and in an app's rules. -->
+    <string name="kind_lists">Lists</string>
+    <string name="add_list">Add list</string>
+    <string name="no_lists">No lists</string>
+    <!-- Title of a list in an app's rules, after its own rules. -->
+    <string name="app_list_title">List: <xliff:g id="list" example="Encrypted DNS servers">%1$s</xliff:g></string>
+    <!-- What a list holds, such as "224,341 domains and 12 IP addresses". -->
+    <plurals name="list_domain_count">
+        <item quantity="one"><xliff:g id="count" example="1">%s</xliff:g> domain</item>
+        <item quantity="other"><xliff:g id="count" example="224,341">%s</xliff:g> domains</item>
+    </plurals>
+    <plurals name="list_address_count">
+        <item quantity="one"><xliff:g id="count" example="1">%s</xliff:g> IP address</item>
+        <item quantity="other"><xliff:g id="count" example="1,849">%s</xliff:g> IP addresses</item>
+    </plurals>
+    <!-- A list's summary: what it holds, and when it last changed and was last checked. -->
+    <string name="list_summary"><xliff:g id="entries" example="224,341 domains">%1$s</xliff:g> · changed <xliff:g id="changed" example="Nov 21">%2$s</xliff:g>, checked <xliff:g id="checked" example="Nov 22">%3$s</xliff:g></string>
+    <string name="list_not_downloaded">Not downloaded yet</string>
+    <!-- A list's summary when its last check failed; its last good copy still applies. -->
+    <string name="list_check_failed"><xliff:g id="summary" example="224,341 domains · changed Nov 21">%1$s</xliff:g>\nCouldn\'t update: <xliff:g id="reason" example="the server answered with error 404">%2$s</xliff:g></string>
+    <string name="list_error_network">no connection to the server</string>
+    <string name="list_error_server">the server answered with error <xliff:g id="status" example="404">%1$d</xliff:g></string>
+    <string name="list_error_not_a_list">the download isn\'t a list</string>
+    <string name="list_error_count">the download is incomplete</string>
+    <string name="list_error_storage">not enough storage</string>
+    <string name="list_error_memory">too big for this phone\'s memory</string>
+    <string name="list_error_full">the firewall can\'t hold more IP addresses</string>
+    <!-- Description of the button that removes a list, and the confirmation. -->
+    <string name="remove_list_for">Remove \"<xliff:g id="list" example="Ads and trackers">%1$s</xliff:g>\"</string>
+    <string name="remove_list_title">Remove \"<xliff:g id="list" example="Ads and trackers">%1$s</xliff:g>\"?</string>
+
+    <!-- The page that adds a list: the lists the firewall suggests, and the user's own. -->
+    <string name="lists_suggested">Suggested</string>
+    <string name="lists_own">Your own</string>
+    <string name="list_address">Address</string>
+    <string name="list_address_hint">Starts with https://</string>
+    <string name="list_address_invalid">Enter an address that starts with https://, then try again.</string>
+    <string name="add_list_file">Add from a file</string>
+    <string name="add_list_file_summary">A list saved on this phone, which doesn\'t update</string>
+    <string name="list_added">Added</string>
+    <string name="list_add_failed">Couldn\'t add the list.</string>
+    <string name="list_file_failed">Couldn\'t add the list. Check that the file is a list.</string>
+    <string name="lists_full">The firewall holds as many lists as it can. Remove one, then try again.</string>
+    <string name="add_list_footer">Lists download when you add them, then each day on Wi\u2011Fi and other unmetered networks. Allow rules win over every list.</string>
+
+    <!-- The lists the firewall suggests: what each blocks, and whose list it is. -->
+    <string name="list_ads">Ads and trackers</string>
+    <string name="list_ads_summary">OISD big list</string>
+    <string name="list_threats">Malware, phishing and scams</string>
+    <string name="list_threats_summary">HaGeZi Threat Intelligence Feeds, medium</string>
+    <string name="list_adult">Adult content</string>
+    <string name="list_adult_summary">OISD NSFW list</string>
+    <string name="list_adult_wider">Adult content, dating and AI companions</string>
+    <string name="list_adult_wider_summary">HaGeZi NSFW list. Also blocks dating apps, AI companion chats and 4chan.</string>
+    <string name="list_hijacked_v4">Hijacked networks (IPv4)</string>
+    <string name="list_hijacked_v6">Hijacked networks (IPv6)</string>
+    <string name="list_hijacked_summary">Spamhaus DROP list of networks run by criminals</string>
+    <string name="list_bypass">VPN, Tor and proxy services</string>
+    <string name="list_bypass_summary">HaGeZi bypass list. Blocks VPN, Tor and proxy sites, Apple Private Relay and Cloudflare WARP.</string>
+    <string name="list_stalkerware">Stalkerware</string>
+    <string name="list_stalkerware_summary">Echap\'s Stalkerware Indicators. Also blocks Bark, a parental monitoring app.</string>
+    <string name="list_encrypted_dns">Encrypted DNS servers</string>
+    <string name="list_encrypted_dns_summary">HaGeZi list. Keeps the app on Android\'s own DNS, which the firewall checks.</string>
+    <string name="list_encrypted_dns_addresses">Encrypted DNS servers by IP address</string>
+    <string name="list_encrypted_dns_addresses_summary">HaGeZi list, for apps that reach a server by its IP address</string>
+    <string name="list_encrypted_dns_exact">More encrypted DNS servers</string>
+    <string name="list_encrypted_dns_exact_summary">dibdot\'s list, matched exactly</string>
+</resources>

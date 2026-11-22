@@ -70,6 +70,10 @@ const std::vector<std::string> kMaps = {
         "uid_networks",
         "lan4",
         "lan6",
+        "scope_lists",
+        "list_ip4",
+        "list_ip6",
+        "list_files",
 };
 const std::vector<std::pair<std::string, bpf_attach_type>> kProgs = {
         {"egress", BPF_CGROUP_INET_EGRESS}, {"ingress", BPF_CGROUP_INET_INGRESS},
@@ -141,6 +145,9 @@ class FirewallBpfTest : public ::testing::Test {
                      "scope_limits",
                      "uid_networks",
                      "lan6",
+                     "scope_lists",
+                     "list_ip4",
+                     "list_files",
              }) {
             mMaps[name].reset(mapRetrieveRW(mapPath(name).c_str()));
             ASSERT_LE(0, mMaps[name].get()) << name << ": " << strerror(errno);
@@ -149,6 +156,7 @@ class FirewallBpfTest : public ::testing::Test {
     }
 
     void TearDown() override {
+        TearDownList();
         for (auto& [map, key] : mWritten) deleteMapEntry(mMaps[map], key.data());
         mTun.destroy();
     }
@@ -281,6 +289,35 @@ class FirewallBpfTest : public ::testing::Test {
         findMapEntry(mMaps["refusal_stats"], &key, &stats);
         return stats;
     }
+    // A list's file of domains in slot kListSlot, for netd's lookup check, until the test ends.
+    void putListFile(const std::vector<std::pair<std::string, bool>>& names) {
+        std::vector<int64_t> keys;
+        for (const auto& [name, subdomains] : names) {
+            keys.push_back(static_cast<int64_t>((fw_domain_hash(name) & ~1ULL) | subdomains));
+        }
+        std::sort(keys.begin(), keys.end());
+        std::vector<uint64_t> file = {FW_LIST_NAMES_MAGIC, keys.size()};
+        file.insert(file.end(), keys.begin(), keys.end());
+        unique_fd fd(open(kListFile.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644));
+        ASSERT_LE(0, fd.get()) << kListFile << ": " << strerror(errno);
+        ssize_t bytes = static_cast<ssize_t>(file.size() * 8);
+        ASSERT_EQ(bytes, write(fd.get(), file.data(), bytes));
+        ASSERT_EQ(0, writeToMapEntry(mMaps["list_files"], &kListSlot, &kListGeneration, BPF_ANY));
+        mListFile = true;
+    }
+
+    void TearDownList() {
+        if (!mListFile) return;
+        uint32_t none = 0;
+        writeToMapEntry(mMaps["list_files"], &kListSlot, &none, BPF_ANY);
+        unlink(kListFile.c_str());
+    }
+
+    static constexpr uint32_t kListSlot = FW_LIST_SLOTS - 1;
+    static constexpr uint32_t kListGeneration = 0x7fff0001;
+    const std::string kListFile = std::string(FW_LISTS_DIR) + std::to_string(kListSlot) + "-" +
+                                  std::to_string(kListGeneration) + ".names";
+    bool mListFile = false;
     std::map<std::string, unique_fd> mMaps;
     std::vector<std::pair<std::string, std::vector<uint8_t>>> mWritten;
     TunInterface mTun;
@@ -692,6 +729,55 @@ TEST_F(FirewallBpfTest, AnswersAreLearnedForTheAllowedNamesTheyPointTo) {
     const char* chain[] = {"edge.cdn.test"};
     EXPECT_TRUE(allowsAnswer(kTestUid, kTestNetId, "www.site.test", chain, 1, &address, 1));
     EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
+}
+
+TEST_F(FirewallBpfTest, AddressListsBlockAfterEveryRule) {
+    constexpr uint64_t kList = 1ULL << kListSlot;
+    fw_ip4_key range = {.prefixlen = 24};
+    inet_pton(AF_INET, "203.0.113.0", range.addr);
+    put("list_ip4", range, kList);
+    put("scope_lists", kTestUid, kList);
+    setRules(FW_SCOPE_LISTS);
+    fw_refusal_key refusal = clearedRefusal(FW_REFUSAL_CONNECT, AF_INET, "203.0.113.9", kPort);
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
+    EXPECT_EQ(FW_REFUSED_LIST, refusalStats(refusal).reasons & FW_REFUSED_LIST);
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "198.51.100.1"));
+
+    // An allow rule wins over every list, and lists never cover the firewall's own app.
+    setRules(FW_SCOPE_LISTS | FW_SCOPE_IP_ALLOWS);
+    putIp4("ip4_allow", kTestUid, "203.0.113.9", 32);
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
+    setRules(FW_SCOPE_LISTS | FW_RULE_NO_LISTS);
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "203.0.113.10"));
+
+    setRules(0);
+    setUserFlags(FW_SCOPE_LISTS);
+    put("scope_lists", kUserScope, kList);
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.10"));
+}
+
+TEST_F(FirewallBpfTest, DomainListsAreCheckedFromTheirFiles) {
+    putListFile({{"tracker.test", true}, {"exact.test", false}});
+    put("scope_lists", kTestUid, 1ULL << kListSlot);
+    setRules(FW_SCOPE_LISTS);
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "tracker.test"));
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "www.tracker.test"));
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "exact.test"));
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "www.exact.test"));
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "other.test"));
+    const char* cloaked[] = {"site.tracker.test"};
+    EXPECT_FALSE(allowsAnswer(kTestUid, kTestNetId, "metrics.site.test", cloaked, 1, nullptr, 0));
+
+    // Allow rules win over every list, the app's own and its user's.
+    setRules(FW_SCOPE_LISTS | FW_SCOPE_DOMAINS);
+    putDomain(kTestUid, "www.tracker.test", FW_DOMAIN_ALLOW);
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "www.tracker.test"));
+    setRules(FW_SCOPE_LISTS);
+    setUserFlags(FW_SCOPE_DOMAINS);
+    putDomain(kUserScope, "mail.tracker.test", FW_DOMAIN_ALLOW);
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "mail.tracker.test"));
+    setRules(FW_SCOPE_LISTS | FW_RULE_NO_LISTS);
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "tracker.test"));
 }
 
 }  // namespace

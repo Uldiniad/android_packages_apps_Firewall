@@ -6,3 +6,7 @@
 # The resolver checks lookups against the maps, and adds the answers of allowed domains.
 allow netd fs_bpf_firewall:dir search;
 allow netd fs_bpf_firewall:file { getattr read write };
+
+# The resolver checks lookups against the lists' files of domains.
+allow netd firewall_list_file:dir search;
+allow netd firewall_list_file:file { getattr map open read };

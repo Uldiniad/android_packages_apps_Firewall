@@ -42,7 +42,7 @@ cc_library_shared {
 // netd's check of lookups for the resolver, linked in when the firewall is built.
 cc_library_static {
     name: "libfirewall_lookup",
-    srcs: ["lookup/FirewallLookup.cpp"],
+    srcs: ["lookup/*.cpp"],
     export_include_dirs: ["lookup/include"],
     header_libs: [
         "bpf_headers",
@@ -57,6 +57,14 @@ cc_library_static {
         "-Wall",
         "-Werror",
     ],
+}
+
+// How lists are read, shared by the service and the firewall app, which reads downloads.
+java_library {
+    name: "firewall-lists",
+    srcs: ["lists/src/**/*.java"],
+    sdk_version: "system_current",
+    visibility: ["//packages/apps/Firewall:__subpackages__"],
 }
 
 // The binder interface between the service and the firewall app.
@@ -82,6 +90,7 @@ java_library {
         "services.core",
     ],
     static_libs: [
+        "firewall-lists",
         "modules-utils-binary-xml",
         "modules-utils-shell-command-handler",
     ],

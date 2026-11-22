@@ -42,6 +42,10 @@ final class FakeMaps implements Maps {
     final Map<String, List<List<Long>>> limits = new HashMap<>();
     /** Scopes whose learned addresses were dropped. */
     final Set<Integer> forgotten = new HashSet<>();
+    /** The slots of each scope's lists, of the lists holding each range, and slots' files. */
+    final Map<String, Long> scopeLists = new HashMap<>();
+    final Map<String, Long> listRanges = new HashMap<>();
+    final Map<Integer, Integer> listFiles = new HashMap<>();
     int[][] vpnRanges = new int[0][];
 
     /** A uid, or "u" and the user id for the rules for all of a user's apps. */
@@ -86,6 +90,9 @@ final class FakeMaps implements Maps {
         dohDomains.clear();
         ports.clear();
         limits.clear();
+        scopeLists.clear();
+        listRanges.clear();
+        listFiles.clear();
     }
     @Override public synchronized int setUid(int uid, int rules) {
         notifyAll();
@@ -159,6 +166,20 @@ final class FakeMaps implements Maps {
     }
     @Override public void forgetLearned(int scope) {
         forgotten.add(scope);
+    }
+    @Override public int setScopeLists(int scope, long slots) {
+        return put(scopeLists, scope(scope), slots);
+    }
+    @Override public int setListRange(byte[] address, int prefixLength, long slots) {
+        try {
+            IpPrefix range = new IpPrefix(InetAddress.getByAddress(address), prefixLength);
+            return put(listRanges, range.toString(), slots);
+        } catch (UnknownHostException e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
+    @Override public int setListFile(int slot, int generation) {
+        return put(listFiles, slot, generation);
     }
     @Override public long[] counters() { return new long[0]; }
     @Override public FileDescriptor refusalsFd() { return null; }

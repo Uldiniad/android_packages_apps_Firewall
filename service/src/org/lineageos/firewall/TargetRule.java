@@ -5,9 +5,6 @@
 
 package org.lineageos.firewall;
 
-import android.icu.text.IDNA;
-import android.net.IpPrefix;
-
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
@@ -20,7 +17,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
-import java.util.regex.Pattern;
 
 /**
  * A rule blocking or allowing an address range, a domain or a remote port, in its normal form,
@@ -41,7 +37,6 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
     static final String SIM = "sim:";
     static final String VPN = "vpn:";
     private static final String[] KINDS = {"address", "domain", "port"};
-    private static final Pattern DOMAIN_NAME = Pattern.compile("[a-z0-9_-]+(\\.[a-z0-9_-]+)*");
     private static final Comparator<List<String>> LISTS = (a, b) -> {
         for (int i = 0; i < Math.min(a.size(), b.size()); i++) {
             int order = a.get(i).compareTo(b.get(i));
@@ -66,9 +61,9 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
         List<String> limits = List.copyOf(keys);
         boolean except = exceptNetworks && !limits.isEmpty();
         return switch (kind) {
-            case ADDRESS -> new TargetRule(allow, kind, parsePrefix(value.trim()).toString(),
+            case ADDRESS -> new TargetRule(allow, kind, Names.parsePrefix(value.trim()).toString(),
                     false, 0, limits, except);
-            case DOMAIN -> new TargetRule(allow, kind, normalizeDomain(value),
+            case DOMAIN -> new TargetRule(allow, kind, Names.normalizeDomain(value),
                     subdomains || value.trim().startsWith("*."), 0, limits, except);
             case PORT -> {
                 int[] range = portRange(value);
@@ -116,24 +111,6 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
         return rule;
     }
 
-    static IpPrefix parsePrefix(String cidr) {
-        String text = cidr.contains("/") ? cidr : cidr + (cidr.contains(":") ? "/128" : "/32");
-        return new IpPrefix(text);
-    }
-
-    /** A domain as DNS carries it: ASCII, lowercase, without the root dot or a wildcard. */
-    static String normalizeDomain(String domain) {
-        String name = domain.trim();
-        if (name.startsWith("*.")) name = name.substring(2);
-        while (name.endsWith(".")) name = name.substring(0, name.length() - 1);
-        IDNA.Info info = new IDNA.Info();
-        String ascii = IDNA.getUTS46Instance(IDNA.NONTRANSITIONAL_TO_ASCII)
-                .nameToASCII(name, new StringBuilder(), info).toString();
-        if (info.hasErrors() || !DOMAIN_NAME.matcher(ascii).matches()) {
-            throw new IllegalArgumentException("Not a domain: " + domain);
-        }
-        return ascii;
-    }
 
     /** Checks a network's key, as KnownNetwork describes it. */
     static String normalizeNetwork(String key) {

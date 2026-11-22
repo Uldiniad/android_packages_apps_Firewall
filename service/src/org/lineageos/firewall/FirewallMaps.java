@@ -26,6 +26,8 @@ final class FirewallMaps {
     static final int NAMED_NETWORKS = 1 << 7;
     /** Set for apps with no network left that Connectivity can't keep to themselves. */
     static final int NO_LOOPBACK = 1 << 18;
+    /** Set for the firewall app, which lists never cover. */
+    static final int NO_LISTS = 1 << 19;
     static final int LAN_LOCAL = 1;
     static final int LAN_DNS = 2;
 
@@ -42,6 +44,9 @@ final class FirewallMaps {
     static final int SCOPE_LEARNED = 1 << 13;
     /** Some of the scope's rules are limited to networks. */
     static final int SCOPE_LIMITS = 1 << 14;
+    /** The scope subscribes to lists, by the bits of their slots. */
+    static final int SCOPE_LISTS = 1 << 15;
+    static final int LIST_SLOTS = 64;
     static final int SCOPE_ALLOWS = SCOPE_IP_ALLOWS | SCOPE_PORT_ALLOWS | SCOPE_LEARNED;
     /** A domain matches its own bits; a parent domain matches only its subdomain bits. */
     static final int DOMAIN_BLOCK = 1;
@@ -67,6 +72,7 @@ final class FirewallMaps {
             "egress_drop_lan",
             "egress_drop_port",
             "allowed_by_rule",
+            "egress_drop_list",
     };
     /** Names of the FW_REFUSED_* bits, and of the FW_REFUSAL_* directions. */
     static final String[] REFUSAL_REASONS = {
@@ -79,10 +85,13 @@ final class FirewallMaps {
             "port for all apps",
             "dns for all apps",
             "lan",
+            "list",
+            "list for all apps",
     };
     /** The FW_REFUSED_* bits, the most specific reason first. */
     static final int[] REFUSAL_REASON_ORDER = {
             2, 3, 5, 6, 4, 7,
+            9, 10,
             8,
             1, 0,
     };
@@ -113,6 +122,9 @@ final class FirewallMaps {
     static native int nativeSetPort(int scope, int protocol, int port, int prefixLength,
             int bits);
     static native void nativeForgetLearned(int scope);
+    static native int nativeSetScopeLists(int scope, long slots);
+    static native int nativeSetListRange(byte[] address, int prefixLength, long slots);
+    static native int nativeSetListFile(int slot, int generation);
     static native long[] nativeCounters();
     static native FileDescriptor nativeRefusalsFd();
     static native long[] nativeConsumeRefusals();

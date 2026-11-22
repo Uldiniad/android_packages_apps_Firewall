@@ -6,3 +6,8 @@
 # The service keeps the maps and switches the programs on.
 allow system_server fs_bpf_firewall:dir search;
 allow system_server fs_bpf_firewall:file { getattr read write };
+
+# The service keeps the lists' files of domains.
+type_transition system_server system_data_file:dir firewall_list_file "firewall_lists";
+allow system_server firewall_list_file:dir create_dir_perms;
+allow system_server firewall_list_file:file create_file_perms;

@@ -64,9 +64,10 @@ public class HostChecks {
         assertTrue(Firewall.tcpConnects("1.1.1.1", 443));
     }
 
-    /** Android's resolver answers this app's lookups. */
+    /** Android's resolver answers this app's lookup of the "host" argument, else example.org. */
     @Test
     public void looksUp() throws Exception {
-        assertTrue(Firewall.looksUp("example.org", 15_000));
+        assertTrue(Firewall.looksUp(
+                InstrumentationRegistry.getArguments().getString("host", "example.org"), 15_000));
     }
 }

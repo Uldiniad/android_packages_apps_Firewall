@@ -15,6 +15,7 @@
 #include <log/log.h>
 #include <private/android_filesystem_config.h>
 
+#include "block_lists.h"
 #include "firewall.h"
 #include "firewall_domain.h"
 
@@ -95,7 +96,17 @@ uint64_t networkOf(const LookupMaps& maps, unsigned netId) {
 }
 
 // Which domain rule decides a name for the uid: its own rules come first, then its user's.
-enum class Decision { kNone, kAppAllows, kAppBlocks, kUserAllows, kUserBlocks };
+enum class Decision { kNone, kAppAllows, kAppBlocks, kUserAllows, kUserBlocks, kListBlocks };
+
+// Whether a list the app or its user subscribes to blocks the name.
+bool listsBlock(uid_t uid, uint32_t rules, uint32_t user, uint32_t userFlags,
+                const std::vector<uint64_t>& suffixes) {
+    if (rules & FW_RULE_NO_LISTS) return false;
+    uint64_t slots = 0;
+    if (rules & FW_SCOPE_LISTS) slots |= listSlots(uid);
+    if (userFlags & FW_SCOPE_LISTS) slots |= listSlots(FW_USER_SCOPE | user);
+    return slots && listsHold(slots, suffixes);
+}
 
 Decision decide(const LookupMaps& maps, uid_t uid, const base::Result<uint32_t>& rules,
                 uint64_t net, const std::vector<uint64_t>& suffixes) {
@@ -110,12 +121,17 @@ Decision decide(const LookupMaps& maps, uid_t uid, const base::Result<uint32_t>&
     }
     uint32_t user = uid / AID_USER_OFFSET;
     auto flags = maps.userFlags.readValue(user);
-    if (!flags.ok() || !(*flags & FW_SCOPE_DOMAINS)) return Decision::kNone;
-    uint32_t scope = FW_USER_SCOPE | user;
-    uint32_t match = fw_domain_bits_on(domainMatch(maps, scope, suffixes),
-                                       limitsOn(maps, scope, *flags, net));
-    if (match & FW_DOMAIN_ALLOW) return Decision::kUserAllows;
-    if ((match & FW_DOMAIN_BLOCK) || dohServer(maps, suffixes)) return Decision::kUserBlocks;
+    uint32_t userFlags = flags.ok() ? *flags : 0;
+    if (userFlags & FW_SCOPE_DOMAINS) {
+        uint32_t scope = FW_USER_SCOPE | user;
+        uint32_t match = fw_domain_bits_on(domainMatch(maps, scope, suffixes),
+                                           limitsOn(maps, scope, userFlags, net));
+        if (match & FW_DOMAIN_ALLOW) return Decision::kUserAllows;
+        if ((match & FW_DOMAIN_BLOCK) || dohServer(maps, suffixes)) return Decision::kUserBlocks;
+    }
+    if (listsBlock(uid, rules.ok() ? *rules : 0, user, userFlags, suffixes)) {
+        return Decision::kListBlocks;
+    }
     return Decision::kNone;
 }
 
@@ -124,7 +140,8 @@ bool allows(Decision decision) {
 }
 
 bool blocks(Decision decision) {
-    return decision == Decision::kAppBlocks || decision == Decision::kUserBlocks;
+    return decision == Decision::kAppBlocks || decision == Decision::kUserBlocks ||
+           decision == Decision::kListBlocks;
 }
 
 // Lets the app reach the addresses of an answer one of whose names its allow rules cover.

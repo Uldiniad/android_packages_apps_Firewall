@@ -10,6 +10,7 @@ android_app {
         ":firewall-aidl",
         "src/**/*.kt",
     ],
+    static_libs: ["firewall-lists"],
     use_resource_processor: true,
     platform_apis: true,
     certificate: "platform",

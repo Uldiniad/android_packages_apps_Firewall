@@ -6,6 +6,7 @@
 package org.lineageos.firewall;
 
 import org.lineageos.firewall.AppRule;
+import org.lineageos.firewall.FirewallList;
 import org.lineageos.firewall.FirewallRule;
 import org.lineageos.firewall.IFirewallListener;
 import org.lineageos.firewall.KnownNetwork;
@@ -34,6 +35,15 @@ interface IFirewall {
     /** The protocols a port rule can be limited to; 0 is both. */
     const int PROTOCOL_TCP = 6;
     const int PROTOCOL_UDP = 17;
+
+    /** Why a list's last check failed; its last good content stays. */
+    const int LIST_ERROR_NETWORK = 1;
+    const int LIST_ERROR_SERVER = 2;
+    const int LIST_ERROR_NOT_A_LIST = 3;
+    const int LIST_ERROR_COUNT = 4;
+    const int LIST_ERROR_STORAGE = 5;
+    const int LIST_ERROR_MEMORY = 6;
+    const int LIST_ERROR_FULL = 7;
 
     void setAppRules(String packageName, int userId, int rules);
     /** Blocks the app, or allows it, until the time in milliseconds since the epoch; 0 ends it. */
@@ -68,6 +78,27 @@ interface IFirewall {
     boolean areNewInstallsBlocked(int userId);
     byte[] getBackupPayload(int userId);
     void applyRestore(int userId, in byte[] payload);
+
+    /** The user's lists, for all of their apps and for each app. */
+    FirewallList[] getLists(int userId);
+    /**
+     * Subscribes the app, or with a null packageName all of the user's apps, to the list at the
+     * https address; its id, or null when the firewall holds as many lists as it can.
+     */
+    @nullable String addList(int userId, @nullable String packageName, String url,
+            boolean subdomains);
+    /** Adds a list read from a file, with content as setListContent takes it; as addList. */
+    @nullable String addListFromFile(int userId, @nullable String packageName, String title,
+            in ParcelFileDescriptor content);
+    void removeList(int userId, @nullable String packageName, String id);
+    /**
+     * Replaces the list's content with what the firewall app read from a download, in the
+     * form ListContent writes, with what the download said of itself; 0 or a LIST_ERROR_*.
+     */
+    int setListContent(String id, in ParcelFileDescriptor content, @nullable String title,
+            @nullable String version, @nullable String etag, @nullable String lastModified);
+    /** A check that left the content as it was: unchanged with error 0, else failed. */
+    void setListChecked(String id, int error, int errorDetail);
 
     /** Turns the firewall on or off for the whole phone, which only an admin user can. */
     void setEnabled(boolean enabled);

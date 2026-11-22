@@ -126,7 +126,7 @@ fun Context.withRuleCount(rule: AppRule?, summary: String): String {
 /** What the app page's footer says about rules. */
 fun Context.rulesFooter(): String = getString(R.string.rules_footer)
 
-/** The app's rules for domains, addresses and ports. */
+/** The app's rules for domains, addresses and ports, and its lists. */
 @Composable
 fun TargetRules(packageName: String, userId: Int) {
     val rules by
@@ -134,9 +134,10 @@ fun TargetRules(packageName: String, userId: Int) {
             .collectAsStateWithLifecycle(null)
     val remove = rememberRemoveRuleDialog()
     val names = rememberNetworkNames(userId)
+    val lists = rememberAppLists(packageName, userId)
     Category(title = stringResource(R.string.rules_title)) {
         val shown = rules.orEmpty()
-        if (rules != null && shown.isEmpty()) {
+        if (rules != null && shown.isEmpty() && lists?.isEmpty() == true) {
             Preference(
                 object : PreferenceModel {
                     override val title = stringResource(R.string.no_app_rules)
@@ -144,6 +145,7 @@ fun TargetRules(packageName: String, userId: Int) {
             )
         }
         for (rule in shown) RuleRow(rule, names, remove)
+        AppListRows(lists.orEmpty())
         Preference(
             object : PreferenceModel {
                 override val title = stringResource(R.string.add_rule)
@@ -151,5 +153,6 @@ fun TargetRules(packageName: String, userId: Int) {
                 override val onClick = AddAppRulesPageProvider.navigator(packageName, userId)
             }
         )
+        AddAppListPreference(packageName, userId)
     }
 }

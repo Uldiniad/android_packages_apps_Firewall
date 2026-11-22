@@ -186,7 +186,7 @@ final class ListParser {
             Entries entries) {
         String name;
         try {
-            name = TargetRule.normalizeDomain(value);
+            name = Names.normalizeDomain(value);
         } catch (IllegalArgumentException e) {
             counts.refused++;
             return;
@@ -203,7 +203,7 @@ final class ListParser {
     private static void takePrefix(String value, Counts counts, Entries entries) {
         IpPrefix prefix;
         try {
-            prefix = TargetRule.parsePrefix(value);
+            prefix = Names.parsePrefix(value);
         } catch (IllegalArgumentException e) {
             counts.refused++;
             return;

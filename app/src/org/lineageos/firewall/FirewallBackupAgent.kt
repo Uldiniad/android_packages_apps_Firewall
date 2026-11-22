@@ -20,6 +20,7 @@ class FirewallBackupAgent : BackupAgentHelper() {
 
                 override fun applyRestoredPayload(key: String, payload: ByteArray) {
                     Firewall.service.applyRestore(userId, payload)
+                    ListUpdates.checkNew(this@FirewallBackupAgent)
                 }
             },
         )

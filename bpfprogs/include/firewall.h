@@ -25,6 +25,7 @@
 #define FW_LAN_SIZE 256
 #define FW_REFUSALS_SIZE 65536
 #define FW_REFUSAL_STATS_SIZE 8192
+#define FW_LIST_SLOTS 64
 #define FW_NS_PER_MINUTE (60ULL * 1000 * 1000 * 1000)
 #define FW_FNV_OFFSET 0xcbf29ce484222325ULL
 #define FW_FNV_PRIME 0x100000001b3ULL
@@ -44,6 +45,8 @@
 #define FW_RULE_NAMED_NETWORKS (1u << 7)
 // Set for apps with no network left that Connectivity can't keep to themselves on loopback.
 #define FW_RULE_NO_LOOPBACK (1u << 18)
+// Set for the firewall app, which lists never cover, so a bad one can't stop their updates.
+#define FW_RULE_NO_LISTS (1u << 19)
 #define FW_RULE_BLOCK_METERED (1u << 16)
 #define FW_RULE_BLOCK_ROAMING (1u << 17)
 #define FW_RULE_NETWORKS (FW_RULE_TRANSPORTS | FW_RULE_BLOCK_METERED | FW_RULE_BLOCK_ROAMING)
@@ -64,6 +67,12 @@
 #define FW_SCOPE_LEARNED (1u << 13)
 // Some of the scope's rules are limited to networks, by its limits in scope_limits.
 #define FW_SCOPE_LIMITS (1u << 14)
+// The scope subscribes to lists, by the bits of their slots in scope_lists.
+#define FW_SCOPE_LISTS (1u << 15)
+// A list's domains are in a file netd maps: FW_LISTS_DIR "<slot>-<generation>.names", which holds
+// FW_LIST_NAMES_MAGIC, a count, and the sorted keys of fw_domain_hash with the subdomain bit.
+#define FW_LISTS_DIR "/data/system/firewall_lists/"
+#define FW_LIST_NAMES_MAGIC 0x3153454d414e4c46ULL
 #define FW_SCOPE_ALLOWS (FW_SCOPE_IP_ALLOWS | FW_SCOPE_PORT_ALLOWS | FW_SCOPE_LEARNED)
 #define FW_SCOPE_BLOCKS (FW_SCOPE_IP_BLOCKS | FW_SCOPE_PORT_BLOCKS)
 // The DNS-over-HTTPS servers browsers switch to on their own, by address and by name, which apps
@@ -96,6 +105,7 @@ enum fw_counter {
     FW_C_EGRESS_DROP_LAN,
     FW_C_EGRESS_DROP_PORT,
     FW_C_ALLOWED_BY_RULE,
+    FW_C_EGRESS_DROP_LIST,
     FW_COUNTER_MAX,
 };
 
@@ -110,6 +120,8 @@ enum fw_counter {
 #define FW_REFUSED_USER_PORT (1u << 6)
 #define FW_REFUSED_USER_DNS (1u << 7)
 #define FW_REFUSED_LAN (1u << 8)
+#define FW_REFUSED_LIST (1u << 9)
+#define FW_REFUSED_USER_LIST (1u << 10)
 
 enum fw_refusal_direction {
     FW_REFUSAL_CONNECT,

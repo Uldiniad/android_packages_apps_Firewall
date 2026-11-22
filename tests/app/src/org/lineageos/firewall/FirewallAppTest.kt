@@ -122,6 +122,9 @@ class FirewallAppTest {
                 .filter { it.value in TEST_VALUES }
                 .toTypedArray()
         )
+        for (list in firewall.getLists(userId).filter { it.title == LIST_FILE }) {
+            firewall.removeList(userId, list.packageName, list.id)
+        }
         firewall.setNewInstallsBlocked(userId, newAppsBlocked)
     }
 
@@ -401,6 +404,60 @@ class FirewallAppTest {
             context.contentResolver.delete(file, null, null)
         }
     }
+
+    @Test
+    fun aListAddedFromAFileShowsInItsTabAndAsksBeforeItsRemoved() {
+        val values =
+            ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, LIST_FILE)
+                put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+            }
+        val file =
+            checkNotNull(
+                context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            )
+        try {
+            checkNotNull(context.contentResolver.openOutputStream(file)).use {
+                it.write("$DOMAIN\n$ADDRESS\n".toByteArray())
+            }
+            onPage("AllAppsRules/$userId") {
+                find(text("kind_lists")).click()
+                find(text("no_lists"))
+                find(text("add_list")).click()
+                scrollTo(text("add_list_file")).click()
+                openDownloadsInPicker()
+                pickFile(LIST_FILE)
+                waitUntil { firewall.getLists(userId).any { it.title == LIST_FILE } }
+                val list = firewall.getLists(userId).first { it.title == LIST_FILE }
+                assertEquals(1, list.domains)
+                assertEquals(1, list.ranges)
+                find(text("kind_lists")).click()
+                findDescribed(text("remove_list_for", LIST_FILE)).click()
+                find(text("remove_list_title", LIST_FILE))
+                find(text("remove")).click()
+                waitUntil { firewall.getLists(userId).none { it.title == LIST_FILE } }
+            }
+        } finally {
+            context.contentResolver.delete(file, null, null)
+        }
+    }
+
+    @Test
+    fun anAppsRulesSuggestTheEncryptedDnsLists() =
+        onPage("AppRules/$testPackage/$userId") {
+            scrollTo(text("add_list")).click()
+            find(text("list_encrypted_dns"))
+            assertFalse(device.hasObject(By.text(text("list_ads"))))
+        }
+
+    @Test
+    fun anAddressThatIsntHttpsComesBackToFix() =
+        onPage("AddList/$userId") {
+            scrollTo(By.clazz(EDIT_TEXT), "address field").text = "http://lists.example.test/ads.txt"
+            find(text("add")).click()
+            scrollTo(text("list_address_invalid"))
+            assertTrue(firewall.getLists(userId).none { it.url?.startsWith("http:") == true })
+        }
 
     @Test
     fun homePageSwitchBlocksNewApps() {
@@ -962,6 +1019,7 @@ class FirewallAppTest {
         const val DOWNLOAD_PROVIDER = "com.android.providers.downloads"
         const val DOWNLOAD_DIR = "/sdcard/Download"
         const val NOT_AN_EXPORT = "not-firewall-rules.xml"
+        const val LIST_FILE = "firewall-test-list.txt"
         const val SYSTEMUI_BATTERY = "com.android.systemui:id/battery_meter_composable_view"
         const val NO_INTERNET = "org.lineageos.firewall.hostside.nointernet"
         val PERMISSION_CONTROLLER: Pattern = Pattern.compile(".*permissioncontroller")
@@ -997,6 +1055,7 @@ class FirewallAppTest {
                 "kind_domains" to "add_domains",
                 "kind_addresses" to "add_addresses",
                 "kind_ports" to "add_ports",
+                "kind_lists" to "add_list",
             )
     }
 }

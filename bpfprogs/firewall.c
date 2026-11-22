@@ -171,6 +171,7 @@ static __always_inline bool parse_l4(struct __sk_buff* skb, struct l4_info* info
 
 #include "target_rules.h"
 #include "local_network.h"
+#include "block_lists.h"
 #include "socket_tags.h"
 
 // 127.0.0.0/8 and ::1, with IPv4-mapped addresses taken as IPv4.
@@ -235,7 +236,14 @@ static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 
         *counter = FW_C_EGRESS_DROP_DOMAIN;
         return true;
     }
-    return (uflags & FW_SCOPE_BLOCKS) && scope_blocks(user_scope, uflags, info, path, counter);
+    if ((uflags & FW_SCOPE_BLOCKS) && scope_blocks(user_scope, uflags, info, path, counter)) {
+        return true;
+    }
+    if (lists_block(uid, rules, user_scope, uflags, info)) {
+        *counter = FW_C_EGRESS_DROP_LIST;
+        return true;
+    }
+    return false;
 }
 
 // An app's allow rules win over its blocks, and its rules over its user's. Allow rules for
@@ -326,6 +334,7 @@ static __always_inline int connect_verdict(struct bpf_sock_addr* ctx, bool v6) {
         }
         blocked =
                 (uflags & FW_SCOPE_BLOCKS) && scope_blocks(user_scope, uflags, &info, &path, NULL);
+        if (!blocked) blocked = lists_block(uid, rules, user_scope, uflags, &info);
     }
     if (!blocked) return 1;
     count(FW_C_CONNECT_DENY);

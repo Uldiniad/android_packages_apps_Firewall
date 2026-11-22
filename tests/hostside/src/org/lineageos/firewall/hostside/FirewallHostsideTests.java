@@ -236,6 +236,48 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
         }
     }
 
+    private boolean looksUp(String host) throws Exception {
+        return runDeviceTests(options("HostChecks", "looksUp", 0)
+                .addInstrumentationArg("host", host).setCheckResults(false));
+    }
+
+    // The list is read by the service as the firewall app reads a download, and checked by netd and
+    // the BPF programs, so this also checks that both find the names as the service keyed them.
+    @Test
+    public void anAppsListBlocksItsNamesThoseHiddenBehindThemAndItsAddresses() throws Exception {
+        String file = "/data/local/tmp/firewall-hostside-list.txt";
+        // dyna.wikimedia.org is what www.wikipedia.org points to; the far end is one no other test
+        // refuses, as one far end's refusals are reported once a minute.
+        shell("printf '%s\\n' example.org dyna.wikimedia.org 192.0.2.3 > " + file);
+        String id = shell("cmd firewall add-list-file Hostside --exact --package " + PACKAGE
+                + " --user 0 < " + file).trim();
+        try {
+            assertTrue("Not added: " + id, id.startsWith("file:"));
+            assertFalse(looksUp("example.org"));
+            assertFalse(looksUp("www.wikipedia.org"));
+            assertTrue(looksUp("www.example.org"));
+            assertTrue(runDeviceTests(options("HostChecks", "refused", 0)
+                    .addInstrumentationArg("address", "192.0.2.3")));
+            Pattern listed = Pattern.compile(
+                    Pattern.quote(PACKAGE + " user 0, connect tcp 192.0.2.3:443 refused ")
+                            + "(once|\\d+ times): list");
+            waitUntil("The refusal was not listed", 10_000,
+                    () -> listed.matcher(shell("dumpsys firewall")).find());
+
+            // An allow rule wins over every list.
+            String allow = "allow domain example.org --package " + PACKAGE;
+            shell("cmd firewall add-rule " + allow);
+            try {
+                assertTrue(looksUp("example.org"));
+            } finally {
+                shell("cmd firewall remove-rule " + allow);
+            }
+        } finally {
+            shell("cmd firewall remove-list " + id + " --package " + PACKAGE + " --user 0");
+            shell("rm -f " + file);
+        }
+    }
+
     @Test
     public void appLevelBehavior() throws Exception {
         assertTrue(run("AppNetworkTests", null, 0));

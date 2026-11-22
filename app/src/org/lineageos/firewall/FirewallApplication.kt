@@ -14,5 +14,6 @@ class FirewallApplication : Application() {
         SpaEnvironmentFactory.reset(FirewallSpaEnvironment(this))
         BlockedAppNotification.createChannel(this)
         NotRunningNotification.createChannel(this)
+        ListUpdates.scheduleDaily(this)
     }
 }

@@ -52,8 +52,13 @@ private fun AllAppsRulesPage(userId: Int) {
     val rules by remember(userId) { Firewall.rules(userId, null) }.collectAsStateWithLifecycle(null)
     SearchScaffold(title = stringResource(R.string.all_apps_rules)) { bottomPadding, searchQuery ->
         val kinds = RuleKind.entries
-        SettingsPager(kinds.map { stringResource(it.title) }) { page ->
-            RuleList(rules, kinds[page], userId, bottomPadding, searchQuery)
+        val titles = kinds.map { stringResource(it.title) } + stringResource(R.string.kind_lists)
+        SettingsPager(titles) { page ->
+            if (page < kinds.size) {
+                RuleList(rules, kinds[page], userId, bottomPadding, searchQuery)
+            } else {
+                ListsTab(userId, bottomPadding, searchQuery)
+            }
         }
     }
 }

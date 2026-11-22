@@ -136,6 +136,7 @@ private suspend fun Context.importRules(userId: Int, uri: Uri): Boolean {
     } catch (e: RemoteException) {
         return false
     }
+    ListUpdates.checkNew(this)
     Toast.makeText(this, R.string.rules_imported, Toast.LENGTH_SHORT).show()
     return true
 }

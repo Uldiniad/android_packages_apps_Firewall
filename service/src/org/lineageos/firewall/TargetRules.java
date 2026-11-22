@@ -247,7 +247,10 @@ final class TargetRules extends Feature {
         ScopeEntries entries = entriesLocked(scope,
                 userTargets.getOrDefault(userId, Set.of()));
         writeScopeLocked(scope, entries);
-        mService.maps().setUserFlags(userId, entries.flags());
+        int flags = entries.flags();
+        BlockLists lists = mService.feature(BlockLists.class);
+        if (lists != null) flags |= lists.userFlagsLocked(userId);
+        mService.maps().setUserFlags(userId, flags);
     }
 
     /**

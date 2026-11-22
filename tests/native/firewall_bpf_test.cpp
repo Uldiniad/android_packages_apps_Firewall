@@ -35,7 +35,7 @@ using android::bpf::mapRetrieveRW;
 using android::bpf::retrieveProgram;
 using android::bpf::writeToMapEntry;
 using android::firewall::allowsLookup;
-using android::firewall::learnAnswer;
+using android::firewall::allowsAnswer;
 using android::net::TunInterface;
 
 namespace {
@@ -622,7 +622,7 @@ TEST_F(FirewallBpfTest, LearnedAnswersKeepTheLimitsOfTheirAllowRule) {
     fw_learned_key key = {.scope = kTestUid};
     memcpy(key.addr, &allowed, sizeof(key.addr));
     forget("learned", key);
-    learnAnswer(kTestUid, "allowed.test", &allowed, 1);
+    EXPECT_TRUE(allowsAnswer(kTestUid, kTestNetId, "allowed.test", nullptr, 0, &allowed, 1));
     uint32_t learned = 0;
     ASSERT_EQ(0, findMapEntry(mMaps["learned"], &key, &learned));
     EXPECT_EQ(1u << 1, learned);
@@ -643,10 +643,55 @@ TEST_F(FirewallBpfTest, AnswersToAllowedNamesAreLearnedBeforeTheAppConnects) {
         forget("learned", key);
     }
     EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
-    learnAnswer(kTestUid, "www.allowed.test", &allowed, 1);
+    EXPECT_TRUE(allowsAnswer(kTestUid, kTestNetId, "www.allowed.test", nullptr, 0, &allowed, 1));
     EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
-    learnAnswer(kTestUid, "other.test", &other, 1);
+    EXPECT_TRUE(allowsAnswer(kTestUid, kTestNetId, "other.test", nullptr, 0, &other, 1));
     EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.10"));
+}
+
+// A tracker hidden behind a site's own name, which its answer points to.
+TEST_F(FirewallBpfTest, AnswersPointingToABlockedNameAreRefused) {
+    const char* cloaked[] = {"site.tracker.test"};
+    const char* clean[] = {"cdn.test"};
+    in6_addr address = ipv4Mapped("203.0.113.9");
+    setRules(FW_SCOPE_DOMAINS);
+    putDomain(kTestUid, "tracker.test", FW_DOMAIN_BLOCK | FW_DOMAIN_BLOCK_SUBDOMAINS);
+    EXPECT_FALSE(allowsAnswer(kTestUid, kTestNetId, "metrics.site.test", cloaked, 1, &address, 1));
+    EXPECT_TRUE(allowsAnswer(kTestUid, kTestNetId, "www.site.test", clean, 1, &address, 1));
+    setRules(0);
+    setUserFlags(FW_SCOPE_DOMAINS);
+    putDomain(kUserScope, "tracker.test", FW_DOMAIN_BLOCK | FW_DOMAIN_BLOCK_SUBDOMAINS);
+    EXPECT_FALSE(allowsAnswer(kTestUid, kTestNetId, "metrics.site.test", cloaked, 1, &address, 1));
+    // Known DNS-over-HTTPS servers count as for a name looked up.
+    putDomain(FW_DOH_SCOPE, "doh.test", FW_DOMAIN_BLOCK);
+    const char* doh[] = {"doh.test"};
+    EXPECT_FALSE(allowsAnswer(kTestUid, kTestNetId, "dns.site.test", doh, 1, &address, 1));
+}
+
+TEST_F(FirewallBpfTest, AnAllowedNameAnywhereInAnAnswerLetsItThrough) {
+    const char* cloaked[] = {"site.tracker.test", "edge.cdn.test"};
+    in6_addr address = ipv4Mapped("203.0.113.9");
+    setRules(FW_SCOPE_DOMAINS);
+    putDomain(kTestUid, "tracker.test", FW_DOMAIN_BLOCK | FW_DOMAIN_BLOCK_SUBDOMAINS);
+    putDomain(kTestUid, "metrics.site.test", FW_DOMAIN_ALLOW);
+    EXPECT_TRUE(allowsAnswer(kTestUid, kTestNetId, "metrics.site.test", cloaked, 2, &address, 1));
+    setUserFlags(FW_SCOPE_DOMAINS);
+    putDomain(kUserScope, "cdn.test", FW_DOMAIN_ALLOW | FW_DOMAIN_ALLOW_SUBDOMAINS);
+    EXPECT_TRUE(allowsAnswer(kTestUid, kTestNetId, "www.site.test", cloaked, 2, &address, 1));
+}
+
+TEST_F(FirewallBpfTest, AnswersAreLearnedForTheAllowedNamesTheyPointTo) {
+    setRules(FW_SCOPE_IP_BLOCKS | FW_SCOPE_DOMAINS | FW_SCOPE_LEARNED);
+    putIp4("ip4_block", kTestUid, "203.0.113.0", 24);
+    putDomain(kTestUid, "cdn.test", FW_DOMAIN_ALLOW | FW_DOMAIN_ALLOW_SUBDOMAINS);
+    in6_addr address = ipv4Mapped("203.0.113.9");
+    fw_learned_key key = {.scope = kTestUid};
+    memcpy(key.addr, &address, sizeof(key.addr));
+    forget("learned", key);
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
+    const char* chain[] = {"edge.cdn.test"};
+    EXPECT_TRUE(allowsAnswer(kTestUid, kTestNetId, "www.site.test", chain, 1, &address, 1));
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
 }
 
 }  // namespace

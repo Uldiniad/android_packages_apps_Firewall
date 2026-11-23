@@ -31,6 +31,7 @@ import com.android.settingslib.spa.widget.editor.SettingsOutlinedTextField
 import com.android.settingslib.spa.widget.preference.SwitchPreference
 import com.android.settingslib.spa.widget.preference.SwitchPreferenceModel
 import com.android.settingslib.spa.widget.scaffold.RegularScaffold
+import com.android.settingslib.spa.widget.ui.Footer
 import kotlinx.coroutines.launch
 
 private const val USER_ID = "rt_userId"
@@ -94,11 +95,15 @@ private fun AddRulesPage(userId: Int, packageName: String?, kind: RuleKind?) {
     var allow by rememberSaveable { mutableStateOf(false) }
     var subdomains by rememberSaveable { mutableStateOf(true) }
     var protocol by rememberSaveable { mutableIntStateOf(0) }
+    var port by rememberSaveable { mutableStateOf("") }
+    var portInvalid by rememberSaveable { mutableStateOf(false) }
     var text by rememberSaveable { mutableStateOf("") }
     var invalid by rememberSaveable { mutableStateOf(false) }
     var limit by rememberSaveable { mutableIntStateOf(ALL_NETWORKS) }
     var networks by rememberSaveable { mutableStateOf(listOf<String>()) }
     val shown = kind ?: chosenKind
+    // Addresses and domains can name a port, and then a protocol.
+    val namedPort = if (shown != RuleKind.PORT) port.trim() else ""
     RegularScaffold(
         title = stringResource(kind?.add ?: R.string.add_rule),
         actions = {
@@ -115,17 +120,22 @@ private fun AddRulesPage(userId: Int, packageName: String?, kind: RuleKind?) {
                                 it.value = value
                                 it.subdomains = subdomains
                                 it.protocol = protocol
+                                if (namedPort.isNotEmpty()) it.port = namedPort
                                 if (limit != ALL_NETWORKS) it.networks = networks.toTypedArray()
                                 it.exceptNetworks = limit == ALL_EXCEPT
                             }
                         }
-                    scope.launch {
-                        val rejected = Firewall.call { addRules(rules.toTypedArray()) }
-                        if (rejected.isEmpty()) {
-                            navController.navigateBack()
-                        } else {
-                            text = rejected.joinToString("\n") { lines[it] }
-                            invalid = true
+                    if (namedPort.isNotEmpty() && !isPort(namedPort)) {
+                        portInvalid = true
+                    } else {
+                        scope.launch {
+                            val rejected = Firewall.call { addRules(rules.toTypedArray()) }
+                            if (rejected.isEmpty()) {
+                                navController.navigateBack()
+                            } else {
+                                text = rejected.joinToString("\n") { lines[it] }
+                                invalid = true
+                            }
                         }
                     }
                 },
@@ -167,26 +177,36 @@ private fun AddRulesPage(userId: Int, packageName: String?, kind: RuleKind?) {
             text = it
             invalid = false
         }
-        when (shown) {
-            RuleKind.DOMAIN ->
-                SwitchPreference(
-                    object : SwitchPreferenceModel {
-                        override val title = stringResource(R.string.include_subdomains)
-                        override val checked = { subdomains }
-                        override val onCheckedChange: (Boolean) -> Unit = { subdomains = it }
-                    }
-                )
-            RuleKind.PORT ->
-                SettingsDropdownBox(
-                    label = stringResource(R.string.protocol_label),
-                    options =
-                        listOf(R.string.protocol_both, R.string.protocol_tcp, R.string.protocol_udp)
-                            .map { stringResource(it) },
-                    selectedOptionIndex = PROTOCOLS.indexOf(protocol),
-                ) {
-                    protocol = PROTOCOLS[it]
+        if (shown == RuleKind.DOMAIN) {
+            SwitchPreference(
+                object : SwitchPreferenceModel {
+                    override val title = stringResource(R.string.include_subdomains)
+                    override val checked = { subdomains }
+                    override val onCheckedChange: (Boolean) -> Unit = { subdomains = it }
                 }
-            RuleKind.ADDRESS -> {}
+            )
+        }
+        if (shown != RuleKind.PORT) {
+            SettingsOutlinedTextField(
+                value = port,
+                label = stringResource(R.string.port_label),
+                errorMessage = if (portInvalid) stringResource(R.string.port_invalid) else null,
+                placeholder = { Text(stringResource(R.string.port_hint)) },
+            ) {
+                port = it
+                portInvalid = false
+            }
+        }
+        if (shown == RuleKind.PORT || namedPort.isNotEmpty()) {
+            SettingsDropdownBox(
+                label = stringResource(R.string.protocol_label),
+                options =
+                    listOf(R.string.protocol_both, R.string.protocol_tcp, R.string.protocol_udp)
+                        .map { stringResource(it) },
+                selectedOptionIndex = PROTOCOLS.indexOf(protocol),
+            ) {
+                protocol = PROTOCOLS[it]
+            }
         }
         SettingsDropdownBox(
             label = stringResource(R.string.networks_label),
@@ -199,7 +219,14 @@ private fun AddRulesPage(userId: Int, packageName: String?, kind: RuleKind?) {
             invalid = false
         }
         if (limit != ALL_NETWORKS) ChosenNetworks(userId, networks) { networks = it }
+        if (shown == RuleKind.DOMAIN) Footer(stringResource(R.string.domain_addresses_footer))
     }
+}
+
+/** Whether [text] is a port from 1 to 65535, or a range of them like 6881-6889. */
+private fun isPort(text: String): Boolean {
+    val ends = text.split('-').map { it.trim().toIntOrNull() ?: return false }
+    return ends.size <= 2 && ends.first() in 1..ends.last() && ends.last() <= 65535
 }
 
 /** The networks rules are limited to: each kind, then the user's specific networks. */

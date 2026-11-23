@@ -20,10 +20,12 @@ import java.util.TreeSet;
 
 /**
  * A rule blocking or allowing an address range, a domain or a remote port, in its normal form,
- * on every network, only on the networks it names, or on all but those.
+ * on every network, only on the networks it names, or on all but those. An address range or a
+ * domain can name a port too.
  */
 record TargetRule(boolean allow, int kind, String value, boolean subdomains, int protocol,
-        List<String> networks, boolean exceptNetworks) implements Comparable<TargetRule> {
+        String port, List<String> networks, boolean exceptNetworks)
+        implements Comparable<TargetRule> {
     static final int ADDRESS = IFirewall.RULE_ADDRESS;
     static final int DOMAIN = IFirewall.RULE_DOMAIN;
     static final int PORT = IFirewall.RULE_PORT;
@@ -47,12 +49,16 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
     private static final Comparator<TargetRule> ORDER = Comparator.comparingInt(TargetRule::kind)
             .thenComparing(TargetRule::value).thenComparing(TargetRule::allow)
             .thenComparing(TargetRule::subdomains).thenComparingInt(TargetRule::protocol)
+            .thenComparing(TargetRule::port, Comparator.nullsFirst(Comparator.naturalOrder()))
             .thenComparing(TargetRule::networks, LISTS)
             .thenComparing(TargetRule::exceptNetworks);
 
-    /** Checks and normalizes a rule; throws IllegalArgumentException for a bad value. */
+    /**
+     * Checks and normalizes a rule; throws IllegalArgumentException for a bad value. The protocol
+     * counts for ports, and for addresses and domains only with a port.
+     */
     static TargetRule of(boolean allow, int kind, String value, boolean subdomains, int protocol,
-            Collection<String> networks, boolean exceptNetworks) {
+            String port, Collection<String> networks, boolean exceptNetworks) {
         if (value == null) throw new IllegalArgumentException("No value");
         TreeSet<String> keys = new TreeSet<>();
         if (networks != null) {
@@ -60,23 +66,32 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
         }
         List<String> limits = List.copyOf(keys);
         boolean except = exceptNetworks && !limits.isEmpty();
+        String named = port == null || port.isBlank() ? null : normalPort(port);
+        int namedProtocol = named == null ? 0 : checkProtocol(protocol);
         return switch (kind) {
             case ADDRESS -> new TargetRule(allow, kind, Names.parsePrefix(value.trim()).toString(),
-                    false, 0, limits, except);
+                    false, namedProtocol, named, limits, except);
             case DOMAIN -> new TargetRule(allow, kind, Names.normalizeDomain(value),
-                    subdomains || value.trim().startsWith("*."), 0, limits, except);
-            case PORT -> {
-                int[] range = portRange(value);
-                if (protocol != 0 && protocol != IFirewall.PROTOCOL_TCP
-                        && protocol != IFirewall.PROTOCOL_UDP) {
-                    throw new IllegalArgumentException("Unknown protocol " + protocol);
-                }
-                String normal = range[0] == range[1] ? Integer.toString(range[0])
-                        : range[0] + "-" + range[1];
-                yield new TargetRule(allow, kind, normal, false, protocol, limits, except);
-            }
+                    subdomains || value.trim().startsWith("*."), namedProtocol, named, limits,
+                    except);
+            case PORT -> new TargetRule(allow, kind, normalPort(value), false,
+                    checkProtocol(protocol), null, limits, except);
             default -> throw new IllegalArgumentException("Unknown kind " + kind);
         };
+    }
+
+    private static int checkProtocol(int protocol) {
+        if (protocol != 0 && protocol != IFirewall.PROTOCOL_TCP
+                && protocol != IFirewall.PROTOCOL_UDP) {
+            throw new IllegalArgumentException("Unknown protocol " + protocol);
+        }
+        return protocol;
+    }
+
+    /** A port or range of ports in its normal form, like 443 or 6881-6889. */
+    private static String normalPort(String value) {
+        int[] range = portRange(value);
+        return range[0] == range[1] ? Integer.toString(range[0]) : range[0] + "-" + range[1];
     }
 
     /** A port, or a range of them like 6881-6889, as its first and last port. */
@@ -92,7 +107,7 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
     }
 
     static TargetRule fromParcel(FirewallRule rule) {
-        return of(rule.allow, rule.kind, rule.value, rule.subdomains, rule.protocol,
+        return of(rule.allow, rule.kind, rule.value, rule.subdomains, rule.protocol, rule.port,
                 rule.networks == null ? List.of() : Arrays.asList(rule.networks),
                 rule.exceptNetworks);
     }
@@ -106,6 +121,7 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
         rule.value = value;
         rule.subdomains = subdomains;
         rule.protocol = protocol;
+        rule.port = port;
         rule.networks = networks.toArray(new String[0]);
         rule.exceptNetworks = exceptNetworks;
         return rule;
@@ -142,9 +158,11 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
         return switch (kind) {
             case ADDRESS -> allow ? FirewallMaps.SCOPE_IP_ALLOWS : FirewallMaps.SCOPE_IP_BLOCKS;
             case PORT -> allow ? FirewallMaps.SCOPE_PORT_ALLOWS : FirewallMaps.SCOPE_PORT_BLOCKS;
-            default -> FirewallMaps.SCOPE_DOMAINS | (allow ? FirewallMaps.SCOPE_LEARNED : 0);
+            default -> FirewallMaps.SCOPE_DOMAINS | (allow ? FirewallMaps.SCOPE_LEARNED
+                    : port != null ? FirewallMaps.SCOPE_LEARNED_BLOCKS : 0);
         };
     }
+
 
     void write(XmlSerializer serializer, Integer user, String packageName) throws IOException {
         serializer.startTag(null, "rule");
@@ -155,6 +173,7 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
         serializer.attribute(null, "value", value);
         if (kind == DOMAIN && !subdomains) serializer.attribute(null, "subdomains", "false");
         if (protocol != 0) serializer.attribute(null, "protocol", Integer.toString(protocol));
+        if (port != null) serializer.attribute(null, "port", port);
         if (exceptNetworks) serializer.attribute(null, "except", "true");
         for (String network : networks) {
             serializer.startTag(null, "network");
@@ -174,6 +193,7 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
         String value = parser.getAttributeValue(null, "value");
         boolean subdomains = !"false".equals(parser.getAttributeValue(null, "subdomains"));
         String protocol = parser.getAttributeValue(null, "protocol");
+        String port = parser.getAttributeValue(null, "port");
         boolean except = "true".equals(parser.getAttributeValue(null, "except"));
         List<String> networks = new ArrayList<>();
         int depth = parser.getDepth();
@@ -185,7 +205,7 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
             }
         }
         return of(allow, kind, value, subdomains, protocol == null ? 0 : Integer.parseInt(protocol),
-                networks, except);
+                port, networks, except);
     }
 
     @Override
@@ -197,6 +217,7 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
     public String toString() {
         String text = (allow ? "allow " : "block ") + KINDS[kind] + " " + value;
         if (kind == DOMAIN && !subdomains) text += " (exact)";
+        if (port != null) text += " port " + port;
         if (protocol == IFirewall.PROTOCOL_TCP) text += " (tcp)";
         if (protocol == IFirewall.PROTOCOL_UDP) text += " (udp)";
         if (!networks.isEmpty()) {

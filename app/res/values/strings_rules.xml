@@ -56,7 +56,13 @@
     <string name="kind_label">Type</string>
     <!-- For a domain rule: whether it also covers the domain's subdomains. -->
     <string name="include_subdomains">Include subdomains</string>
-    <!-- For a port rule: the protocols it covers. -->
+    <!-- For an address or domain rule: the port it is limited to, if any. -->
+    <string name="port_label">Port</string>
+    <string name="port_hint">All ports</string>
+    <string name="port_invalid">Enter a port from 1 to 65535, or a range like 6881-6889.</string>
+    <!-- Under domains being added: allow rules and rules with a port act on the domain's addresses, which other sites can share. -->
+    <string name="domain_addresses_footer">Allow rules and rules with a port act on the IP addresses a domain uses, so other sites at those addresses are allowed or blocked too.</string>
+    <!-- For a port rule, and an address or domain rule with a port: the protocols it covers. -->
     <string name="protocol_label">Protocol</string>
     <string name="protocol_both">TCP and UDP</string>
     <string name="protocol_tcp">TCP</string>
@@ -74,6 +80,13 @@
     <string name="rule_blocked_udp">Blocked for UDP</string>
     <string name="rule_allowed_tcp">Allowed for TCP</string>
     <string name="rule_allowed_udp">Allowed for UDP</string>
+    <!-- A rule's summary with the port an address or domain rule is limited to, or the range of ports. -->
+    <string name="rule_at_port"><xliff:g id="rule" example="Blocked">%1$s</xliff:g> · port <xliff:g id="port" example="443">%2$s</xliff:g></string>
+    <string name="rule_at_ports"><xliff:g id="rule" example="Blocked">%1$s</xliff:g> · ports <xliff:g id="ports" example="6881-6889">%2$s</xliff:g></string>
+    <string name="rule_at_tcp_port"><xliff:g id="rule" example="Blocked">%1$s</xliff:g> · TCP port <xliff:g id="port" example="443">%2$s</xliff:g></string>
+    <string name="rule_at_tcp_ports"><xliff:g id="rule" example="Blocked">%1$s</xliff:g> · TCP ports <xliff:g id="ports" example="6881-6889">%2$s</xliff:g></string>
+    <string name="rule_at_udp_port"><xliff:g id="rule" example="Blocked">%1$s</xliff:g> · UDP port <xliff:g id="port" example="443">%2$s</xliff:g></string>
+    <string name="rule_at_udp_ports"><xliff:g id="rule" example="Blocked">%1$s</xliff:g> · UDP ports <xliff:g id="ports" example="6881-6889">%2$s</xliff:g></string>
     <!-- Description of the button that removes a rule, and the confirmation. -->
     <string name="remove_rule_for">Remove the rule for <xliff:g id="entry" example="example.com">%1$s</xliff:g></string>
     <string name="remove_rule_title">Remove the rule for <xliff:g id="entry" example="example.com">%1$s</xliff:g>?</string>
@@ -85,8 +98,8 @@
     <string name="networks_only">Only on chosen networks</string>
     <string name="networks_except">All except chosen networks</string>
     <string name="networks_chosen">Chosen networks</string>
-    <!-- When rules limited to networks come back: a line may be malformed, or the networks too many to tell apart. -->
-    <string name="invalid_or_too_many_networks">These aren\'t valid, or name more networks than the firewall can tell apart. Fix them and try again.</string>
+    <!-- When rules limited to networks or a port come back: a line may be malformed, or the networks and ports too many to tell apart. -->
+    <string name="invalid_or_too_many_networks">These aren\'t valid, or name more networks and ports than the firewall can tell apart. Fix them and try again.</string>
     <!-- A rule's summary with the networks it is limited to. -->
     <string name="rule_only_networks"><xliff:g id="rule" example="Blocked">%1$s</xliff:g> · only on <xliff:g id="networks" example="Wi\u2011Fi and Home">%2$s</xliff:g></string>
     <string name="rule_except_networks"><xliff:g id="rule" example="Blocked">%1$s</xliff:g> · except on <xliff:g id="networks" example="VPN">%2$s</xliff:g></string>

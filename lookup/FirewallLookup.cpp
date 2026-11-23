@@ -9,6 +9,7 @@
 
 #include <string.h>
 
+#include <utility>
 #include <vector>
 
 #include <bpf/BpfMap.h>
@@ -74,10 +75,19 @@ bool dohServer(const LookupMaps& maps, const std::vector<uint64_t>& suffixes) {
     return fw_domain_bits_on(domainMatch(maps, FW_DOH_SCOPE, suffixes), 1) & FW_DOMAIN_BLOCK;
 }
 
-uint32_t limitsOn(const LookupMaps& maps, uint32_t scope, uint32_t flags, uint64_t net) {
-    if (!(flags & FW_SCOPE_LIMITS)) return 1;
+// The limits that hold for a lookup on the network. It knows no port yet: allow rules with a port
+// let it through, and block rules with a port leave it to the connections.
+struct LimitsOn {
+    uint32_t allows;
+    uint32_t blocks;
+};
+
+LimitsOn limitsOn(const LookupMaps& maps, uint32_t scope, uint32_t flags, uint64_t net) {
+    if (!(flags & FW_SCOPE_LIMITS)) return {1, 1};
     auto limits = maps.scopeLimits.readValue(scope);
-    return fw_limits_on(limits.ok() ? &*limits : nullptr, net);
+    if (!limits.ok()) return {1, 1};
+    uint32_t on = fw_limits_on(&*limits, net, ~0u);
+    return {on, on & ~limits->ported};
 }
 
 bool networkBlocked(const LookupMaps& maps, uint32_t uid, uint32_t rules, uint64_t net) {
@@ -111,10 +121,12 @@ bool listsBlock(uid_t uid, uint32_t rules, uint32_t user, uint32_t userFlags,
 Decision decide(const LookupMaps& maps, uid_t uid, const base::Result<uint32_t>& rules,
                 uint64_t net, const std::vector<uint64_t>& suffixes) {
     if (rules.ok() && (*rules & FW_SCOPE_DOMAINS)) {
-        uint32_t app = fw_domain_bits_on(domainMatch(maps, uid, suffixes),
-                                         limitsOn(maps, uid, *rules, net));
-        if (app & FW_DOMAIN_ALLOW) return Decision::kAppAllows;
-        if ((app & FW_DOMAIN_BLOCK) || dohServer(maps, suffixes)) return Decision::kAppBlocks;
+        uint64_t match = domainMatch(maps, uid, suffixes);
+        LimitsOn on = limitsOn(maps, uid, *rules, net);
+        if (fw_domain_bits_on(match, on.allows) & FW_DOMAIN_ALLOW) return Decision::kAppAllows;
+        if ((fw_domain_bits_on(match, on.blocks) & FW_DOMAIN_BLOCK) || dohServer(maps, suffixes)) {
+            return Decision::kAppBlocks;
+        }
     } else if (!rules.ok() && !isAppUid(uid)) {
         // Without rules of their own, only apps follow their user's rules.
         return Decision::kNone;
@@ -124,10 +136,12 @@ Decision decide(const LookupMaps& maps, uid_t uid, const base::Result<uint32_t>&
     uint32_t userFlags = flags.ok() ? *flags : 0;
     if (userFlags & FW_SCOPE_DOMAINS) {
         uint32_t scope = FW_USER_SCOPE | user;
-        uint32_t match = fw_domain_bits_on(domainMatch(maps, scope, suffixes),
-                                           limitsOn(maps, scope, userFlags, net));
-        if (match & FW_DOMAIN_ALLOW) return Decision::kUserAllows;
-        if ((match & FW_DOMAIN_BLOCK) || dohServer(maps, suffixes)) return Decision::kUserBlocks;
+        uint64_t match = domainMatch(maps, scope, suffixes);
+        LimitsOn on = limitsOn(maps, scope, userFlags, net);
+        if (fw_domain_bits_on(match, on.allows) & FW_DOMAIN_ALLOW) return Decision::kUserAllows;
+        if ((fw_domain_bits_on(match, on.blocks) & FW_DOMAIN_BLOCK) || dohServer(maps, suffixes)) {
+            return Decision::kUserBlocks;
+        }
     }
     if (listsBlock(uid, rules.ok() ? *rules : 0, user, userFlags, suffixes)) {
         return Decision::kListBlocks;
@@ -144,26 +158,37 @@ bool blocks(Decision decision) {
            decision == Decision::kListBlocks;
 }
 
-// Lets the app reach the addresses of an answer one of whose names its allow rules cover.
+// Lets the app reach the addresses of an answer one of whose names its allow rules cover, and
+// keeps it from them on the ports its block rules name.
 void learn(LookupMaps& maps, uid_t uid, const base::Result<uint32_t>& rules,
            const std::vector<std::vector<uint64_t>>& names, const in6_addr* addresses,
            size_t count) {
     if (count == 0) return;
-    std::vector<uint32_t> scopes;
-    if (rules.ok() && (*rules & FW_SCOPE_LEARNED)) scopes.push_back(uid);
+    constexpr uint32_t kLearned = FW_SCOPE_LEARNED | FW_SCOPE_LEARNED_BLOCKS;
+    std::vector<std::pair<uint32_t, uint32_t>> scopes;
+    if (rules.ok() && (*rules & kLearned)) scopes.emplace_back(uid, *rules);
     if (rules.ok() || isAppUid(uid)) {
         uint32_t user = uid / AID_USER_OFFSET;
         auto flags = maps.userFlags.readValue(user);
-        if (flags.ok() && (*flags & FW_SCOPE_LEARNED)) scopes.push_back(FW_USER_SCOPE | user);
+        if (flags.ok() && (*flags & kLearned)) scopes.emplace_back(FW_USER_SCOPE | user, *flags);
     }
-    for (uint32_t scope : scopes) {
-        // The limits under which the scope's allow rules cover a name, whichever network the
-        // lookup went over: the packets the app sends next are checked on their own network.
+    for (const auto& [scope, flags] : scopes) {
+        // The limits under which the scope's rules cover a name, whichever network the lookup
+        // went over: the packets the app sends next are checked on their own network.
+        uint32_t portBlocks = 0;
+        if (flags & FW_SCOPE_LEARNED_BLOCKS) {
+            auto read = maps.scopeLimits.readValue(scope);
+            if (read.ok()) portBlocks = read->ported;
+        }
         uint32_t limits = 0;
         for (const std::vector<uint64_t>& suffixes : names) {
             uint64_t match = domainMatch(maps, scope, suffixes);
             for (int i = 0; i < FW_LIMITS; i++) {
-                if ((match >> (4 * i)) & FW_DOMAIN_ALLOW) limits |= 1u << i;
+                uint64_t bits = match >> (4 * i);
+                if (bits & FW_DOMAIN_ALLOW) limits |= 1u << i;
+                if ((bits & FW_DOMAIN_BLOCK) && (portBlocks & (1u << i))) {
+                    limits |= 1u << (FW_LEARNED_BLOCKS_SHIFT + i);
+                }
             }
         }
         if (!limits) continue;

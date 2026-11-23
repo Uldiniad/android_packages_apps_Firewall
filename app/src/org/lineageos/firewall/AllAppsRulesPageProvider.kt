@@ -82,7 +82,7 @@ private fun RuleList(
         count = shown.size,
         key = {
             with(shown[it]) {
-                "$allow:$value:$subdomains:$protocol:$exceptNetworks:${networks?.toList()}"
+                "$allow:$value:$subdomains:$protocol:$port:$exceptNetworks:${networks?.toList()}"
             }
         },
         bottomPadding = bottomPadding,

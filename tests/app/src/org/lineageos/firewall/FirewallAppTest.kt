@@ -719,6 +719,35 @@ class FirewallAppTest {
         }
 
     @Test
+    fun addressRulesTakeAPortOnceItIsOne() =
+        onPage("AllAppsRules/$userId") {
+            find(text("kind_addresses")).click()
+            find(text("add_addresses")).click()
+            valuesField("kind_addresses").text = ADDRESS
+            valuesField("port_label").text = "70000"
+            find(text("add")).click()
+            find(text("port_invalid"))
+            valuesField("port_label").text = DNS_PORT
+            choose("protocol_both", "protocol_udp")
+            find(text("add")).click()
+            waitUntil {
+                firewall.getRules(userId, null).any {
+                    it.value == ADDRESS && it.port == DNS_PORT &&
+                        it.protocol == IFirewall.PROTOCOL_UDP
+                }
+            }
+            find(text("rule_at_udp_port", text("rule_blocked"), DNS_PORT))
+        }
+
+    @Test
+    fun domainPageSaysRulesActOnTheDomainsAddresses() =
+        onPage("AllAppsRules/$userId") {
+            find(text("kind_domains")).click()
+            find(text("add_domains")).click()
+            scrollTo(text("domain_addresses_footer"))
+        }
+
+    @Test
     fun portRangesShowAsOneRule() {
         firewall.addRules(arrayOf(rule(null, IFirewall.RULE_PORT, PORT_RANGE)))
         onPage("AllAppsRules/$userId") {
@@ -1030,6 +1059,7 @@ class FirewallAppTest {
         const val ADDRESS = "198.51.100.0/24"
         const val PORT = "8443"
         const val PORT_RANGE = "6881-6889"
+        const val DNS_PORT = "53"
         val TEST_VALUES = setOf(DOMAIN, OTHER_DOMAIN, ADDRESS, PORT, PORT_RANGE)
         const val EDIT_TEXT = "android.widget.EditText"
         const val TEXT_VIEW = "android.widget.TextView"

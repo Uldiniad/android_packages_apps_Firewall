@@ -29,8 +29,17 @@ public class HostChecks {
     /** A connection to the "address" argument, 1.1.1.1 without one, is refused. */
     @Test
     public void refused() throws Exception {
-        assertFalse(Firewall.tcpConnects(
-                InstrumentationRegistry.getArguments().getString("address", "1.1.1.1"), 443));
+        assertFalse(Firewall.tcpConnects(address(), port()));
+    }
+
+    /** The "address" argument, as for refused. */
+    private static String address() {
+        return InstrumentationRegistry.getArguments().getString("address", "1.1.1.1");
+    }
+
+    /** The "port" argument, 443 without one. */
+    private static int port() {
+        return Integer.parseInt(InstrumentationRegistry.getArguments().getString("port", "443"));
     }
 
     /**
@@ -61,7 +70,7 @@ public class HostChecks {
     @Test
     public void allowed() throws Exception {
         assertTrue("No usable network", Firewall.waitForUsableNetwork(30_000));
-        assertTrue(Firewall.tcpConnects("1.1.1.1", 443));
+        assertTrue(Firewall.tcpConnects(address(), port()));
     }
 
     /** Android's resolver answers this app's lookup of the "host" argument, else example.org. */

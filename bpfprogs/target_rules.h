@@ -51,8 +51,9 @@ struct {
     __uint(max_entries, FW_IP_RULES_SIZE);
 } ip6_allow SEC(".maps");
 
-// Valued with FW_PORT_* bits per limit. The service splits overlapping ranges into prefixes that
-// don't overlap, so a port matches one prefix per scope and protocol.
+// Valued with FW_PORT_* bits per limit, or under a scope with FW_LIMIT_PORTS_SCOPE with the
+// limits whose port it is. The service splits overlapping ranges into prefixes that don't overlap,
+// so a port matches one prefix per scope and protocol.
 struct {
     __uint(type, BPF_MAP_TYPE_LPM_TRIE);
     __uint(map_flags, BPF_F_NO_PREALLOC);
@@ -61,8 +62,9 @@ struct {
     __uint(max_entries, FW_PORT_RULES_SIZE);
 } port_rules SEC(".maps");
 
-// Answers to lookups of allowed domains, which netd writes before the app gets them, valued with
-// the limits under which the domains are allowed.
+// Answers to lookups of allowed domains, and of domains blocked on a port, which netd writes before
+// the app gets them: valued with the limits under which the domains are allowed, and above
+// FW_LEARNED_BLOCKS_SHIFT those under which they are blocked on a port.
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, struct fw_learned_key);
@@ -94,26 +96,50 @@ static __always_inline __u32 user_flags_of(__u32 user) {
     return flags ? *flags : 0;
 }
 
-__u32 fw_scope_limits(__u32 scope, __u64 net);
-
-__attribute__((noinline)) __u32 fw_scope_limits(__u32 scope, __u64 net) {
-    return fw_limits_on(bpf_map_lookup_elem(&scope_limits, &scope), net);
+// The scope's limits whose port is at, a protocol << 16 | port.
+static __always_inline __u32 limit_ports(__u32 scope, __u32 at) {
+    struct fw_port_key key = {.prefixlen = FW_PORT_PREFIX_BITS + 16,
+                              .scope = scope | FW_LIMIT_PORTS_SCOPE,
+                              .protocol = (at >> 16) & 0xff,
+                              .port = {(at >> 8) & 0xff, at & 0xff}};
+    __u32 ports = 0;
+    __u32* value = bpf_map_lookup_elem(&port_rules, &key);
+    if (value) ports |= *value;
+    key.protocol = 0;
+    value = bpf_map_lookup_elem(&port_rules, &key);
+    if (value) ports |= *value;
+    return ports;
 }
 
-static __always_inline __u32 limits_on(__u32 scope, __u32 flags, const struct fw_path* path) {
+__u32 fw_scope_limits(__u32 scope, __u64 net, __u32 at);
+
+__attribute__((noinline)) __u32 fw_scope_limits(__u32 scope, __u64 net, __u32 at) {
+    struct fw_limits* limits = bpf_map_lookup_elem(&scope_limits, &scope);
+    __u32 ports = limits && limits->ported ? limit_ports(scope, at) : 0;
+    return fw_limits_on(limits, net, ports);
+}
+
+static __always_inline __u32 limits_on(__u32 scope, __u32 flags, const struct fw_path* path,
+                                       __u32 at) {
     if (!(flags & FW_SCOPE_LIMITS)) return 1;
-    return fw_scope_limits(scope, path_network(path));
+    return fw_scope_limits(scope, path_network(path), at);
 }
 
-// Whether an entry, with a bit per limit, holds on the path's network.
+// The far end's protocol and port, which the limits that name a port check.
+static __always_inline __u32 far_end_at(const struct l4_info* info) {
+    return (__u32)info->protocol << 16 | info->port;
+}
+
+// Whether an entry, with a bit per limit, holds on the path's network and at the port.
 static __always_inline bool holds(__u32 bits, __u32 scope, __u32 flags,
-                                  const struct fw_path* path) {
+                                  const struct fw_path* path, __u32 at) {
     if (bits & 1) return true;
-    return (bits & ~1u) && (bits & limits_on(scope, flags, path));
+    return (bits & ~1u) && (bits & limits_on(scope, flags, path, at));
 }
 
-static __always_inline bool listed(void* trie4, void* trie6, __u32 scope, __u32 flags,
-                                   const struct l4_info* info, const struct fw_path* path) {
+static __always_inline bool listed_at(void* trie4, void* trie6, __u32 scope, __u32 flags,
+                                      const struct l4_info* info, const struct fw_path* path,
+                                      __u32 at) {
     __u32* limits;
     if (info->v6) {
         struct fw_scope_ip6_key key = {.prefixlen = 32 + 128, .scope = scope};
@@ -124,7 +150,12 @@ static __always_inline bool listed(void* trie4, void* trie6, __u32 scope, __u32 
         __builtin_memcpy(key.addr, &info->addr[0], sizeof(key.addr));
         limits = bpf_map_lookup_elem(trie4, &key);
     }
-    return limits && holds(*limits, scope, flags, path);
+    return limits && holds(*limits, scope, flags, path, at);
+}
+
+static __always_inline bool listed(void* trie4, void* trie6, __u32 scope, __u32 flags,
+                                   const struct l4_info* info, const struct fw_path* path) {
+    return listed_at(trie4, trie6, scope, flags, info, path, far_end_at(info));
 }
 
 static __always_inline __u32 port_bits(__u32 scope, __u32 flags, const struct l4_info* info,
@@ -140,11 +171,13 @@ static __always_inline __u32 port_bits(__u32 scope, __u32 flags, const struct l4
     value = bpf_map_lookup_elem(&port_rules, &key);
     if (value) bits |= *value;
     if (!(bits & ~(FW_PORT_BLOCK | FW_PORT_ALLOW))) return bits;
-    return fw_port_bits_on(bits, limits_on(scope, flags, path));
+    return fw_port_bits_on(bits, limits_on(scope, flags, path, far_end_at(info)));
 }
 
+// Whether the far end was learned under the limits of allow rules, or with blocks, of block rules
+// with a port, that hold.
 static __always_inline bool was_learned(__u32 scope, __u32 flags, const struct l4_info* info,
-                                        const struct fw_path* path) {
+                                        const struct fw_path* path, bool blocks) {
     struct fw_learned_key key = {.scope = scope};
     if (info->v6) {
         __builtin_memcpy(key.addr, info->addr, sizeof(key.addr));
@@ -154,7 +187,10 @@ static __always_inline bool was_learned(__u32 scope, __u32 flags, const struct l
         __builtin_memcpy(&key.addr[12], &info->addr[0], 4);
     }
     __u32* limits = bpf_map_lookup_elem(&learned, &key);
-    return limits && holds(*limits, scope, flags, path);
+    if (!limits) return false;
+    __u32 bits = blocks ? *limits >> FW_LEARNED_BLOCKS_SHIFT
+                        : *limits & ((1u << FW_LEARNED_BLOCKS_SHIFT) - 1);
+    return holds(bits, scope, flags, path, far_end_at(info));
 }
 
 // Whether the scope's allow rules cover the far end, by address, port or learned answer.
@@ -168,7 +204,7 @@ static __always_inline bool scope_allows(__u32 scope, __u32 flags, const struct 
         (port_bits(scope, flags, info, path) & FW_PORT_ALLOW)) {
         return true;
     }
-    return (flags & FW_SCOPE_LEARNED) && was_learned(scope, flags, info, path);
+    return (flags & FW_SCOPE_LEARNED) && was_learned(scope, flags, info, path, false);
 }
 
 // Whether the scope's block rules cover the far end, and, if asked, the counter of the one that
@@ -183,6 +219,10 @@ static __always_inline bool scope_blocks(__u32 scope, __u32 flags, const struct 
     if ((flags & FW_SCOPE_PORT_BLOCKS) &&
         (port_bits(scope, flags, info, path) & FW_PORT_BLOCK)) {
         if (counter) *counter = FW_C_EGRESS_DROP_PORT;
+        return true;
+    }
+    if ((flags & FW_SCOPE_LEARNED_BLOCKS) && was_learned(scope, flags, info, path, true)) {
+        if (counter) *counter = FW_C_EGRESS_DROP_DOMAIN;
         return true;
     }
     return false;

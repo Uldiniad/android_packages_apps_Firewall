@@ -278,44 +278,63 @@ final class TargetRules extends Feature {
     }
 
     /**
+     * The networks a limit needs and those it excludes, as network bits, and the protocol and the
+     * first and last port it names; first is 0 when it names none.
+     */
+    private record Limit(long only, long except, int protocol, int first, int last) {
+        static final Limit EVERY_NETWORK = new Limit(0, 0, 0, 0, 0);
+        static final Comparator<Limit> ORDER = Comparator.comparingLong(Limit::only)
+                .thenComparingLong(Limit::except).thenComparingInt(Limit::protocol)
+                .thenComparingInt(Limit::first).thenComparingInt(Limit::last);
+
+        /** The limit of the networks, with the rule's port. */
+        static Limit of(long only, long except, TargetRule rule) {
+            if (rule.port() == null) return new Limit(only, except, 0, 0, 0);
+            int[] range = TargetRule.portRange(rule.port());
+            return new Limit(only, except, rule.protocol(), range[0], range[1]);
+        }
+    }
+
+    /**
      * A scope's rules as map entries: the limits each range is named under per action, port and
-     * domain bits per limit, and the networks of each limit after limit 0, every network.
+     * domain bits per limit, the networks and port of each limit after limit 0, every network,
+     * and the limits' ports as port entries valued with the limits whose port they are.
      */
     private record ScopeEntries(Map<Pair<String, Boolean>, Integer> prefixes,
-            Map<Long, Integer> ports, Map<String, Long> domains, List<Pair<Long, Long>> limits,
-            int flags) {
+            Map<Long, Integer> ports, Map<String, Long> domains, List<Limit> limits,
+            Map<Long, Integer> limitPorts, int flags) {
         static final ScopeEntries EMPTY =
-                new ScopeEntries(Map.of(), Map.of(), Map.of(), List.of(), 0);
-        private static final Pair<Long, Long> EVERY_NETWORK = Pair.create(0L, 0L);
+                new ScopeEntries(Map.of(), Map.of(), Map.of(), List.of(), Map.of(), 0);
         private static final long DOMAIN_ALLOWS = 0xccccccccccccccccL;
+        private static final long DOMAIN_BLOCKS = 0x3L;
 
         /**
          * Limits keep their numbers from the previous entries while rules use them, so answers
-         * learned for allowed domains stay valid.
+         * learned for domains stay valid.
          */
         static ScopeEntries of(Collection<TargetRule> rules, Map<String, Integer> slots,
                 ScopeEntries previous) {
-            Map<TargetRule, Pair<Long, Long>> limitOf = new HashMap<>();
-            Set<Pair<Long, Long>> wanted = new HashSet<>();
+            Map<TargetRule, Limit> limitOf = new HashMap<>();
+            Set<Limit> wanted = new HashSet<>();
             for (TargetRule rule : rules) {
-                Pair<Long, Long> limit = limitOf(rule, slots);
+                Limit limit = limitOf(rule, slots);
                 if (limit == null) continue;
                 limitOf.put(rule, limit);
-                if (!limit.equals(EVERY_NETWORK)) wanted.add(limit);
+                if (!limit.equals(Limit.EVERY_NETWORK)) wanted.add(limit);
             }
-            List<Pair<Long, Long>> limits = numberLimits(wanted, previous.limits());
-            Map<Pair<Long, Long>, Integer> numbers = new HashMap<>();
+            List<Limit> limits = numberLimits(wanted, previous.limits());
+            Map<Limit, Integer> numbers = new HashMap<>();
             for (int i = 0; i < limits.size(); i++) {
-                if (!limits.get(i).equals(EVERY_NETWORK)) numbers.put(limits.get(i), i + 1);
+                if (!limits.get(i).equals(Limit.EVERY_NETWORK)) numbers.put(limits.get(i), i + 1);
             }
             Map<Pair<String, Boolean>, Integer> prefixes = new HashMap<>();
             Map<Long, Integer> ports = new HashMap<>();
             Map<Integer, List<int[]>> portRanges = new HashMap<>();
             Map<String, Long> domains = new HashMap<>();
             int flags = 0;
-            for (Map.Entry<TargetRule, Pair<Long, Long>> entry : limitOf.entrySet()) {
+            for (Map.Entry<TargetRule, Limit> entry : limitOf.entrySet()) {
                 TargetRule rule = entry.getKey();
-                Integer number = entry.getValue().equals(EVERY_NETWORK) ? Integer.valueOf(0)
+                Integer number = entry.getValue().equals(Limit.EVERY_NETWORK) ? Integer.valueOf(0)
                         : numbers.get(entry.getValue());
                 if (number == null) continue;
                 flags |= rule.scopeFlags();
@@ -340,15 +359,26 @@ final class TargetRules extends Feature {
                 flags |= FirewallMaps.SCOPE_LIMITS;
                 inheritWiderRanges(prefixes);
             }
-            return new ScopeEntries(prefixes, ports, domains, limits, flags);
+            Map<Integer, List<int[]>> limitRanges = new HashMap<>();
+            for (int i = 0; i < limits.size(); i++) {
+                Limit limit = limits.get(i);
+                if (limit.first() == 0) continue;
+                limitRanges.computeIfAbsent(limit.protocol(), p -> new ArrayList<>())
+                        .add(new int[] {limit.first(), limit.last(), 1 << (i + 1)});
+            }
+            Map<Long, Integer> limitPorts = new HashMap<>();
+            for (Map.Entry<Integer, List<int[]>> protocol : limitRanges.entrySet()) {
+                Maps.putPortPrefixes(limitPorts, protocol.getKey(), protocol.getValue());
+            }
+            return new ScopeEntries(prefixes, ports, domains, limits, limitPorts, flags);
         }
 
         /**
-         * A rule's limit as the network bits it needs and those it excludes; null when no
-         * network can match it, as its specific networks have no slot.
+         * A rule's limit; null when no network can match it, as its specific networks have no
+         * slot.
          */
-        private static Pair<Long, Long> limitOf(TargetRule rule, Map<String, Integer> slots) {
-            if (rule.networks().isEmpty()) return EVERY_NETWORK;
+        private static Limit limitOf(TargetRule rule, Map<String, Integer> slots) {
+            if (rule.networks().isEmpty()) return Limit.of(0, 0, rule);
             long bits = 0;
             for (String network : rule.networks()) {
                 Integer kind = TargetRule.NETWORK_KINDS.get(network);
@@ -356,20 +386,18 @@ final class TargetRules extends Feature {
                 if (kind != null) bits |= kind;
                 if (slot != null) bits |= 1L << (32 + slot);
             }
-            if (rule.exceptNetworks()) return Pair.create(0L, bits);
-            return bits == 0 ? null : Pair.create(bits, 0L);
+            if (rule.exceptNetworks()) return Limit.of(0, bits, rule);
+            return bits == 0 ? null : Limit.of(bits, 0, rule);
         }
 
         /**
          * Numbers the limits from 1, keeping previous numbers; unused numbers in between hold
          * EVERY_NETWORK, and limits past the last number are left out.
          */
-        private static List<Pair<Long, Long>> numberLimits(Set<Pair<Long, Long>> wanted,
-                List<Pair<Long, Long>> previous) {
-            List<Pair<Long, Long>> left = new ArrayList<>(wanted);
-            left.sort(Comparator.comparing((Pair<Long, Long> limit) -> limit.first)
-                    .thenComparing(limit -> limit.second));
-            List<Pair<Long, Long>> numbered =
+        private static List<Limit> numberLimits(Set<Limit> wanted, List<Limit> previous) {
+            List<Limit> left = new ArrayList<>(wanted);
+            left.sort(Limit.ORDER);
+            List<Limit> numbered =
                     new ArrayList<>(Collections.nCopies(FirewallMaps.LIMITS - 1, null));
             for (int i = 0; i < previous.size(); i++) {
                 if (left.remove(previous.get(i))) numbered.set(i, previous.get(i));
@@ -379,8 +407,8 @@ final class TargetRules extends Feature {
             }
             int size = numbered.size();
             while (size > 0 && numbered.get(size - 1) == null) size--;
-            List<Pair<Long, Long>> limits = new ArrayList<>(numbered.subList(0, size));
-            limits.replaceAll(limit -> limit == null ? EVERY_NETWORK : limit);
+            List<Limit> limits = new ArrayList<>(numbered.subList(0, size));
+            limits.replaceAll(limit -> limit == null ? Limit.EVERY_NETWORK : limit);
             return List.copyOf(limits);
         }
 
@@ -409,13 +437,30 @@ final class TargetRules extends Feature {
             }));
         }
 
-        /** The allow bits per domain; addresses learned for them go when these change. */
-        Map<String, Long> allowedDomains() {
-            Map<String, Long> allowed = new HashMap<>();
-            domains.forEach((name, value) -> {
-                if ((value & DOMAIN_ALLOWS) != 0) allowed.put(name, value & DOMAIN_ALLOWS);
-            });
-            return allowed;
+        /**
+         * The bits per domain that its answers are learned under: allows, and blocks with a port.
+         * Addresses learned for them go when these change.
+         */
+        Map<String, Long> learnedDomains() {
+            long learned = DOMAIN_ALLOWS;
+            for (int i = 0; i < limits.size(); i++) {
+                if (limits.get(i).first() != 0) learned |= DOMAIN_BLOCKS << (4 * (i + 1));
+            }
+            Map<String, Long> kept = new HashMap<>();
+            for (Map.Entry<String, Long> domain : domains.entrySet()) {
+                long bits = domain.getValue() & learned;
+                if (bits != 0) kept.put(domain.getKey(), bits);
+            }
+            return kept;
+        }
+
+        /** The bits of the limits that name a port. */
+        int ported() {
+            int ported = 0;
+            for (int i = 0; i < limits.size(); i++) {
+                if (limits.get(i).first() != 0) ported |= 1 << (i + 1);
+            }
+            return ported;
         }
     }
 
@@ -444,6 +489,13 @@ final class TargetRules extends Feature {
                         (int) ((key >> 8) & 0xff), bits);
             }
         }
+        for (long key : union(prev.limitPorts().keySet(), next.limitPorts().keySet())) {
+            int bits = next.limitPorts().getOrDefault(key, 0);
+            if (bits != prev.limitPorts().getOrDefault(key, 0)) {
+                mService.maps().setPort(scope | FirewallMaps.LIMIT_PORTS_SCOPE, (int) (key & 0xff),
+                        (int) (key >> 16), (int) ((key >> 8) & 0xff), bits);
+            }
+        }
         for (String name : union(prev.domains().keySet(), next.domains().keySet())) {
             long bits = next.domains().getOrDefault(name, 0L);
             if (bits != prev.domains().getOrDefault(name, 0L)) mService.maps().setDomain(scope, name, bits);
@@ -452,12 +504,12 @@ final class TargetRules extends Feature {
             long[] only = new long[next.limits().size()];
             long[] except = new long[next.limits().size()];
             for (int i = 0; i < only.length; i++) {
-                only[i] = next.limits().get(i).first;
-                except[i] = next.limits().get(i).second;
+                only[i] = next.limits().get(i).only();
+                except[i] = next.limits().get(i).except();
             }
-            mService.maps().setLimits(scope, only, except);
+            mService.maps().setLimits(scope, only, except, next.ported());
         }
-        if (!prev.allowedDomains().equals(next.allowedDomains())) mService.maps().forgetLearned(scope);
+        if (!prev.learnedDomains().equals(next.learnedDomains())) mService.maps().forgetLearned(scope);
         if (next.equals(ScopeEntries.EMPTY)) {
             mScopeEntries.remove(scope);
         } else {
@@ -524,12 +576,13 @@ final class TargetRules extends Feature {
     }
 
     /**
-     * Whether the firewall can tell the networks the rule names apart: every specific network
-     * gets one of the slots, and each scope has its limits for at most LIMITS - 1 network lists.
+     * Whether the firewall can tell the networks and ports the rule names apart: every specific
+     * network gets one of the slots, and each scope has its limits for at most LIMITS - 1
+     * combinations of networks and a port.
      */
     private boolean fitsLocked(TargetRule rule, int userId, List<Pair<String, Integer>> apps,
             Set<String> named) {
-        if (rule.networks().isEmpty()) return true;
+        if (limitKey(rule) == null) return true;
         Set<String> wanted = named != null ? new HashSet<>(named) : new HashSet<>();
         for (String network : rule.networks()) {
             if (!TargetRule.NETWORK_KINDS.containsKey(network)) {
@@ -539,8 +592,8 @@ final class TargetRules extends Feature {
             }
         }
         if (wanted.size() > FirewallMaps.SLOTS) return false;
-        Set<Pair<List<String>, Boolean>> limits = new HashSet<>();
-        limits.add(Pair.create(rule.networks(), rule.exceptNetworks()));
+        Set<List<Object>> limits = new HashSet<>();
+        limits.add(limitKey(rule));
         List<Set<TargetRule>> scope = new ArrayList<>();
         if (apps == null) {
             scope.add(userTargets.getOrDefault(userId, Set.of()));
@@ -551,14 +604,22 @@ final class TargetRules extends Feature {
         }
         for (Set<TargetRule> rules : scope) {
             for (TargetRule other : rules) {
-                if (!other.networks().isEmpty()) {
-                    limits.add(Pair.create(other.networks(), other.exceptNetworks()));
-                }
+                List<Object> key = limitKey(other);
+                if (key != null) limits.add(key);
             }
         }
         if (limits.size() >= FirewallMaps.LIMITS) return false;
         if (named != null) named.addAll(wanted);
         return true;
+    }
+
+    /** What sets a rule's limit apart from others; null for limit 0, every network. */
+    private static List<Object> limitKey(TargetRule rule) {
+        if (rule.port() == null) {
+            return rule.networks().isEmpty() ? null
+                    : List.of(rule.networks(), rule.exceptNetworks());
+        }
+        return List.of(rule.networks(), rule.exceptNetworks(), rule.protocol(), rule.port());
     }
 
     void removeRulesInternal(FirewallRule[] rules) {
@@ -630,6 +691,7 @@ final class TargetRules extends Feature {
                 case "--exact" -> rule.subdomains = false;
                 case "--tcp" -> rule.protocol = IFirewall.PROTOCOL_TCP;
                 case "--udp" -> rule.protocol = IFirewall.PROTOCOL_UDP;
+                case "--port" -> rule.port = shell.getNextArgRequired();
                 case "--on", "--except" -> {
                     if (!networks.isEmpty() && rule.exceptNetworks != option.equals("--except")) {
                         throw new IllegalArgumentException("Either --on or --except");
@@ -670,11 +732,12 @@ final class TargetRules extends Feature {
     @Override
     void onShellHelp(PrintWriter pw) {
         pw.println("  add-rule|remove-rule block|allow address|domain|port VALUE");
-        pw.println("      [--package PACKAGE] [--user USER] [--exact] [--tcp|--udp]");
+        pw.println("      [--package PACKAGE] [--user USER] [--exact] [--port PORT] [--tcp|--udp]");
         pw.println("      [--on NETWORK]... | [--except NETWORK]...");
         pw.println("      Without --package the rule is for all of the user's apps. --exact");
-        pw.println("      leaves a domain's subdomains out; --tcp or --udp limits a port rule,");
-        pw.println("      whose VALUE is a port or a range like 6881-6889.");
+        pw.println("      leaves a domain's subdomains out; --port limits an address or domain");
+        pw.println("      rule to a port. A port, here or as a port rule's VALUE, is a number or");
+        pw.println("      a range like 6881-6889; --tcp or --udp limits it to that protocol.");
         pw.println("      --on limits the rule to networks, --except to all others. NETWORK:");
         pw.println("      wifi, mobile, vpn, other, metered, roaming, or a specific network");
         pw.println("      from list-networks.");

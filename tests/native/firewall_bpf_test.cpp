@@ -212,6 +212,14 @@ class FirewallBpfTest : public ::testing::Test {
         put("port_rules", key, bits);
     }
 
+    // The ports of a scope's limit that names them.
+    void putLimitPorts(uint32_t scope, int limit, uint8_t protocol, uint16_t first,
+                       uint16_t last) {
+        for (uint32_t port = first; port <= last; port++) {
+            putPort(scope | FW_LIMIT_PORTS_SCOPE, port, protocol, 1u << limit);
+        }
+    }
+
     unique_fd testSocket(int family) {
         unique_fd fd(socket(family, SOCK_DGRAM | SOCK_CLOEXEC, 0));
         EXPECT_LE(0, fd.get());
@@ -778,6 +786,60 @@ TEST_F(FirewallBpfTest, DomainListsAreCheckedFromTheirFiles) {
     EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "mail.tracker.test"));
     setRules(FW_SCOPE_LISTS | FW_RULE_NO_LISTS);
     EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "tracker.test"));
+}
+
+TEST_F(FirewallBpfTest, AddressRulesWithAPortApplyOnlyAtThatPort) {
+    // Limit 1 is UDP port 9, limit 2 TCP ports 10 to 12, and limit 3 ports 13 and 14 over both.
+    put("scope_limits", kTestUid, fw_limits{.ported = (1u << 1) | (1u << 2) | (1u << 3)});
+    putLimitPorts(kTestUid, 1, IPPROTO_UDP, kPort, kPort);
+    putLimitPorts(kTestUid, 2, IPPROTO_TCP, 10, 12);
+    putLimitPorts(kTestUid, 3, 0, 13, 14);
+    setRules(FW_SCOPE_IP_BLOCKS | FW_SCOPE_LIMITS);
+    putMulticast("ip6_block", kTestUid, (1u << 1) | (1u << 2) | (1u << 3));
+    putIp4("ip4_block", kTestUid, "198.51.100.7", 32, 1u << 1);
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+    EXPECT_EQ(0, sendMulticast(kPort + 100));
+    EXPECT_EQ(0, sendMulticast(11));
+    EXPECT_EQ(EPERM, sendMulticast(13));
+    EXPECT_EQ(0, sendMulticast(15));
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "198.51.100.7"));
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "198.51.100.7", kPort + 1));
+
+    // An allow rule with a port lets a blocked app reach the address there only.
+    setRules(FW_RULE_BLOCK_ALL | FW_SCOPE_IP_ALLOWS | FW_SCOPE_LIMITS);
+    putIp4("ip4_allow", kTestUid, "198.51.100.8", 32, 1u << 1);
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "198.51.100.8"));
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "198.51.100.8", kPort + 1));
+}
+
+// netd lets lookups of a domain with a port through and learns the answers for that port.
+TEST_F(FirewallBpfTest, DomainRulesWithAPortApplyToTheirAnswersAtThatPort) {
+    put("scope_limits", kTestUid, fw_limits{.ported = 1u << 1});
+    putLimitPorts(kTestUid, 1, IPPROTO_UDP, kPort, kPort);
+    in6_addr blocked = ipv4Mapped("203.0.113.9"), allowed = ipv4Mapped("203.0.113.10");
+    for (const in6_addr& address : {blocked, allowed}) {
+        fw_learned_key key = {.scope = kTestUid};
+        memcpy(key.addr, &address, sizeof(key.addr));
+        forget("learned", key);
+    }
+    setRules(FW_SCOPE_DOMAINS | FW_SCOPE_LEARNED_BLOCKS | FW_SCOPE_LIMITS);
+    putDomain(kTestUid, "blocked.test", uint64_t{FW_DOMAIN_BLOCK} << 4);
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "blocked.test"));
+    EXPECT_TRUE(allowsAnswer(kTestUid, kTestNetId, "blocked.test", nullptr, 0, &blocked, 1));
+    fw_refusal_key refusal = clearedRefusal(FW_REFUSAL_CONNECT, AF_INET, "203.0.113.9", kPort);
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.9"));
+    EXPECT_EQ(FW_REFUSED_DOMAIN, refusalStats(refusal).reasons);
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "203.0.113.9", kPort + 1));
+
+    // A blocked app's allow rule with a port lets the lookup through, and the app reach the
+    // answer there only.
+    setRules(FW_RULE_BLOCK_ALL | FW_SCOPE_DOMAINS | FW_SCOPE_LEARNED | FW_SCOPE_LIMITS);
+    putDomain(kTestUid, "allowed.test", uint64_t{FW_DOMAIN_ALLOW} << 4);
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "allowed.test"));
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "other.test"));
+    EXPECT_TRUE(allowsAnswer(kTestUid, kTestNetId, "allowed.test", nullptr, 0, &allowed, 1));
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "203.0.113.10"));
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.10", kPort + 1));
 }
 
 }  // namespace

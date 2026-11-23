@@ -236,6 +236,45 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
         }
     }
 
+    private boolean connects(String check, String address, int port) throws Exception {
+        return runDeviceTests(options("HostChecks", check, 0)
+                .addInstrumentationArg("address", address)
+                .addInstrumentationArg("port", Integer.toString(port)));
+    }
+
+    // A rule's port is a limit the service numbers and the BPF programs look up apart, and the
+    // answers of a domain blocked on a port are learned for it, so this checks they meet.
+    @Test
+    public void rulesWithAPortRefuseOnlyAtThatPort() throws Exception {
+        // A far end no other test refuses: one far end's refusals are reported once a minute.
+        String address = "192.0.2.5";
+        String rule = "block address " + address + " --port 443 --tcp --package " + PACKAGE;
+        shell("cmd firewall add-rule " + rule);
+        try {
+            assertTrue(connects("refused", address, 443));
+            Pattern listed = Pattern.compile(
+                    Pattern.quote(PACKAGE + " user 0, connect tcp " + address + ":443 refused ")
+                            + "(once|\\d+ times): address");
+            waitUntil("The refusal was not listed", 10_000,
+                    () -> listed.matcher(shell("dumpsys firewall")).find());
+            assertTrue(connects("refused", address, 80));
+            assertFalse(shell("dumpsys firewall").contains(address + ":80 refused"));
+        } finally {
+            shell("cmd firewall remove-rule " + rule);
+        }
+
+        // A domain blocked on a port still resolves, and only that port is refused.
+        String domain = "block domain example.org --exact --port 443 --tcp --package " + PACKAGE;
+        shell("cmd firewall add-rule " + domain);
+        try {
+            assertTrue(looksUp("example.org"));
+            assertTrue(connects("refused", "example.org", 443));
+            assertTrue(connects("allowed", "example.org", 80));
+        } finally {
+            shell("cmd firewall remove-rule " + domain);
+        }
+    }
+
     private boolean looksUp(String host) throws Exception {
         return runDeviceTests(options("HostChecks", "looksUp", 0)
                 .addInstrumentationArg("host", host).setCheckResults(false));

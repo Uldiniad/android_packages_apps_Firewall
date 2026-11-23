@@ -20,10 +20,15 @@ parcelable FirewallRule {
     String value;
     /** For domains, whether the rule also covers their subdomains. */
     boolean subdomains;
-    /** For ports, IFirewall.PROTOCOL_TCP or PROTOCOL_UDP, or 0 for both. */
+    /**
+     * For ports, and addresses and domains with one, IFirewall.PROTOCOL_TCP or PROTOCOL_UDP, or 0
+     * for both.
+     */
     int protocol;
     /** The networks the rule is limited to, by KnownNetwork key; without any, every network. */
     @nullable String[] networks;
     /** Whether the rule applies on every network but those, rather than only on them. */
     boolean exceptNetworks;
+    /** For addresses and domains, the port or range like 6881-6889 the rule is limited to. */
+    @nullable String port;
 }

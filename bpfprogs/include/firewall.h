@@ -69,12 +69,14 @@
 #define FW_SCOPE_LIMITS (1u << 14)
 // The scope subscribes to lists, by the bits of their slots in scope_lists.
 #define FW_SCOPE_LISTS (1u << 15)
+// The scope blocks domains on a port, whose answers' addresses are learned for that port.
+#define FW_SCOPE_LEARNED_BLOCKS (1u << 20)
 // A list's domains are in a file netd maps: FW_LISTS_DIR "<slot>-<generation>.names", which holds
 // FW_LIST_NAMES_MAGIC, a count, and the sorted keys of fw_domain_hash with the subdomain bit.
 #define FW_LISTS_DIR "/data/system/firewall_lists/"
 #define FW_LIST_NAMES_MAGIC 0x3153454d414e4c46ULL
 #define FW_SCOPE_ALLOWS (FW_SCOPE_IP_ALLOWS | FW_SCOPE_PORT_ALLOWS | FW_SCOPE_LEARNED)
-#define FW_SCOPE_BLOCKS (FW_SCOPE_IP_BLOCKS | FW_SCOPE_PORT_BLOCKS)
+#define FW_SCOPE_BLOCKS (FW_SCOPE_IP_BLOCKS | FW_SCOPE_PORT_BLOCKS | FW_SCOPE_LEARNED_BLOCKS)
 // The DNS-over-HTTPS servers browsers switch to on their own, by address and by name, which apps
 // under domain rules may not reach, as their own DNS.
 #define FW_DOH_SCOPE (FW_USER_SCOPE | 0x7fffffffu)
@@ -88,10 +90,16 @@
 #define FW_PORT_ALLOW (1u << 1)
 
 // Limit 0 is every network; any other limit applies on networks with any of its only bits, if it
-// has some, and none of its except bits. Rule entries hold bits per limit: one for addresses and
-// learned answers, a pair of FW_PORT_* bits for ports and a nibble of FW_DOMAIN_* bits for domains.
+// has some, and none of its except bits, and to its port if it names one. Rule entries hold bits
+// per limit: one for addresses and learned answers, a pair of FW_PORT_* bits for ports and a
+// nibble of FW_DOMAIN_* bits for domains.
 #define FW_LIMITS 16
 #define FW_LIMITS_SIZE 4096
+// The ports of a scope's limits that name one are port_rules entries under the scope with
+// FW_LIMIT_PORTS_SCOPE set, valued with the limits whose port they are.
+#define FW_LIMIT_PORTS_SCOPE (1u << 29)
+// A learned answer's limits for block rules with a port, above those for allow rules.
+#define FW_LEARNED_BLOCKS_SHIFT 16
 
 enum fw_counter {
     FW_C_EGRESS_DROP_ALL,
@@ -122,6 +130,8 @@ enum fw_counter {
 #define FW_REFUSED_LAN (1u << 8)
 #define FW_REFUSED_LIST (1u << 9)
 #define FW_REFUSED_USER_LIST (1u << 10)
+#define FW_REFUSED_DOMAIN (1u << 11)
+#define FW_REFUSED_USER_DOMAIN (1u << 12)
 
 enum fw_refusal_direction {
     FW_REFUSAL_CONNECT,
@@ -221,6 +231,9 @@ struct fw_named_networks {
 struct fw_limits {
     __u64 only[FW_LIMITS];
     __u64 except[FW_LIMITS];
+    // The limits that name a port.
+    __u32 ported;
+    __u32 unused;
 };
 
 // Shared with netd's lookup check, so both decide alike.
@@ -241,21 +254,23 @@ FW_INLINE __u64 fw_nonzero(__u64 x) {
     return bits >> 63;
 }
 
-// The scope's limits that apply on the network, as bits. Branch-free, so the verifier walks one
-// path through it whatever the limits are.
-FW_INLINE __u32 fw_limits_on(const struct fw_limits* limits, __u64 net) {
+// The scope's limits that apply on the network, as bits. One that names a port also needs its bit
+// in ports, the limits whose port is the packet's. Branch-free, so the verifier walks one path
+// through it whatever the limits are.
+FW_INLINE __u32 fw_limits_on(const struct fw_limits* limits, __u64 net, __u32 ports) {
     __u32 on = 1;
     if (!limits) return on;
+    __u32 ported = limits->ported;
 #pragma clang loop unroll(full)
     for (int i = 1; i < FW_LIMITS; i++) {
         __u64 only = limits->only[i];
         __u64 except = limits->except[i];
-        __u64 applies = fw_nonzero(only | except) &
+        __u64 applies = fw_nonzero(only | except | ((ported >> i) & 1)) &
                         ((1 - fw_nonzero(only)) | fw_nonzero(net & only)) &
                         (1 - fw_nonzero(net & except));
         on |= (__u32)applies << i;
     }
-    return on;
+    return on & (~ported | ports);
 }
 
 // The FW_PORT_* bits a port entry has under the limits on.

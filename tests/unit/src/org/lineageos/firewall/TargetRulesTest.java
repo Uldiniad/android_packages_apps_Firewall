@@ -64,13 +64,13 @@ public class TargetRulesTest extends ServiceTestBase {
         store.apps.put(Pair.create(PACKAGE, 4242), FirewallMaps.BLOCK_ALL);
         store.apps.put(Pair.create(PACKAGE, 0), FirewallMaps.BLOCK_WIFI);
         seed.feature(TargetRules.class).userTargets.put(4242, new TreeSet<>(Set.of(
-                TargetRule.of(false, TargetRule.ADDRESS, "198.51.100.0/24", false, 0, List.of(),
-                        false),
-                TargetRule.of(false, TargetRule.DOMAIN, "gone.test", true, 0, List.of(),
+                TargetRule.of(false, TargetRule.ADDRESS, "198.51.100.0/24", false, 0, null,
+                        List.of(), false),
+                TargetRule.of(false, TargetRule.DOMAIN, "gone.test", true, 0, null, List.of(),
                         false))));
         seed.feature(TargetRules.class).userTargets.put(0, new TreeSet<>(Set.of(
-                TargetRule.of(false, TargetRule.ADDRESS, "203.0.113.0/24", false, 0, List.of(),
-                        false))));
+                TargetRule.of(false, TargetRule.ADDRESS, "203.0.113.0/24", false, 0, null,
+                        List.of(), false))));
         store.save();
 
         FirewallService service = start();
@@ -228,6 +228,72 @@ public class TargetRulesTest extends ServiceTestBase {
     }
 
     @Test
+    public void addressAndDomainRulesWithAPortGetALimitForThatPort() {
+        FirewallService service = start();
+        TargetRules targets = service.feature(TargetRules.class);
+        FirewallRule dns = rule(null, false, TargetRule.ADDRESS, "9.9.9.9");
+        dns.port = "53";
+        dns.protocol = IFirewall.PROTOCOL_UDP;
+        FirewallRule web = rule(null, true, TargetRule.DOMAIN, "example.test");
+        web.port = "443";
+        web.protocol = IFirewall.PROTOCOL_TCP;
+        FirewallRule plain = rule(null, false, TargetRule.DOMAIN, "tracker.test");
+        plain.port = "80";
+        // Without a port, the protocol doesn't count.
+        FirewallRule anyPort = rule(null, false, TargetRule.ADDRESS, "198.51.100.7");
+        anyPort.protocol = IFirewall.PROTOCOL_TCP;
+        assertEquals(0, targets.addRulesInternal(rules(dns, web, plain, anyPort)).length);
+        // Limits 1 to 3 name port 80, TCP port 443 and UDP port 53, by their protocols' order.
+        assertEquals(List.of(List.of(0L, 0L), List.of(0L, 0L), List.of(0L, 0L)),
+                mMaps.limits.get("u0"));
+        assertEquals(0b1110, (int) mMaps.ported.get("u0"));
+        assertEquals(Map.of("ports-u0:80/0", 1 << 1, "ports-u0:443/6", 1 << 2,
+                "ports-u0:53/17", 1 << 3), mMaps.ports);
+        assertEquals(Map.of("u0:block:9.9.9.9/32", 1 << 3, "u0:block:198.51.100.7/32", 1),
+                mMaps.ipLimits);
+        assertEquals(Map.of(
+                "u0:example.test",
+                (long) (FirewallMaps.DOMAIN_ALLOW | FirewallMaps.DOMAIN_ALLOW_SUBDOMAINS) << 8,
+                "u0:tracker.test",
+                (long) (FirewallMaps.DOMAIN_BLOCK | FirewallMaps.DOMAIN_BLOCK_SUBDOMAINS) << 4),
+                mMaps.domains);
+        // A domain blocked on a port has its answers learned, as an allowed one does.
+        assertEquals(FirewallMaps.SCOPE_IP_BLOCKS | FirewallMaps.SCOPE_DOMAINS
+                | FirewallMaps.SCOPE_LEARNED | FirewallMaps.SCOPE_LEARNED_BLOCKS
+                | FirewallMaps.SCOPE_LIMITS, (int) mMaps.userFlags.get(0));
+        FirewallRule kept = Arrays.stream(targets.getRulesInternal(0, null))
+                .filter(r -> r.value.equals("198.51.100.7/32")).findFirst().orElseThrow();
+        assertEquals(0, kept.protocol);
+    }
+
+    @Test
+    public void portsCountTowardTheLimitsTheFirewallTellsApart() {
+        FirewallService service = start();
+        TargetRules targets = service.feature(TargetRules.class);
+        List<FirewallRule> ported = new ArrayList<>();
+        for (int i = 1; i <= FirewallMaps.LIMITS; i++) {
+            FirewallRule rule = rule(null, false, TargetRule.ADDRESS, "198.51.100." + i);
+            rule.port = Integer.toString(1000 + i);
+            ported.add(rule);
+        }
+        // Limit 0 is every network and port, which leaves LIMITS - 1 for rules.
+        assertArrayEquals(new int[] {FirewallMaps.LIMITS - 1},
+                targets.addRulesInternal(ported.toArray(new FirewallRule[0])));
+    }
+
+    @Test
+    public void changingDomainBlocksWithAPortForgetsTheirLearnedAddresses() {
+        FirewallService service = start();
+        TargetRules targets = service.feature(TargetRules.class);
+        FirewallRule blocked = rule(PACKAGE, false, TargetRule.DOMAIN, "example.test");
+        blocked.port = "80";
+        targets.addRulesInternal(rules(blocked));
+        mMaps.forgotten.clear();
+        targets.removeRulesInternal(rules(blocked));
+        assertTrue(mMaps.forgotten.contains(UID));
+    }
+
+    @Test
     public void rulesGoWithBackups() {
         FirewallService service = start();
         TargetRules targets = service.feature(TargetRules.class);
@@ -247,9 +313,10 @@ public class TargetRulesTest extends ServiceTestBase {
     @Test
     public void rulesSurviveSaveAndLoad() {
         FirewallService service = unstarted();
-        TargetRule range = TargetRule.of(false, TargetRule.ADDRESS, "198.51.100.0/24", false, 0,
-                List.of("wifi:\"Caf\u00e9, upstairs\"", "mobile"), true);
-        TargetRule exact = TargetRule.of(false, TargetRule.DOMAIN, "ads.test", false, 0,
+        TargetRule range = TargetRule.of(false, TargetRule.ADDRESS, "198.51.100.0/24", false,
+                IFirewall.PROTOCOL_UDP, "53", List.of("wifi:\"Caf\u00e9, upstairs\"", "mobile"),
+                true);
+        TargetRule exact = TargetRule.of(false, TargetRule.DOMAIN, "ads.test", false, 0, null,
                 List.of(), false);
         TargetRules targets = service.feature(TargetRules.class);
         targets.userTargets.put(10, new TreeSet<>(Set.of(range)));

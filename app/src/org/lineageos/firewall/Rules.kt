@@ -82,9 +82,9 @@ fun Context.ruleTitle(rule: FirewallRule): String =
         else -> getString(R.string.port_title, rule.value)
     }
 
-/** A rule's summary, with the networks it is limited to by the names in [names]. */
+/** A rule's summary, with its port and the networks it is limited to by the names in [names]. */
 fun Context.ruleSummary(rule: FirewallRule, names: Map<String, String>): String {
-    val summary = targetSummary(rule)
+    val summary = withPort(rule, targetSummary(rule))
     val networks = rule.networks.orEmpty()
     if (networks.isEmpty()) return summary
     return getString(
@@ -100,13 +100,28 @@ private fun Context.targetSummary(rule: FirewallRule): String =
             rule.kind == IFirewall.RULE_DOMAIN && rule.subdomains ->
                 if (rule.allow) R.string.rule_allowed_subdomains
                 else R.string.rule_blocked_subdomains
-            rule.protocol == IFirewall.PROTOCOL_TCP ->
+            rule.port == null && rule.protocol == IFirewall.PROTOCOL_TCP ->
                 if (rule.allow) R.string.rule_allowed_tcp else R.string.rule_blocked_tcp
-            rule.protocol == IFirewall.PROTOCOL_UDP ->
+            rule.port == null && rule.protocol == IFirewall.PROTOCOL_UDP ->
                 if (rule.allow) R.string.rule_allowed_udp else R.string.rule_blocked_udp
             else -> if (rule.allow) R.string.rule_allowed else R.string.rule_blocked
         }
     )
+
+/** The summary with the port an address or domain rule names, like "Blocked · TCP port 443". */
+private fun Context.withPort(rule: FirewallRule, summary: String): String {
+    val port = rule.port ?: return summary
+    val range = '-' in port
+    val format =
+        when (rule.protocol) {
+            IFirewall.PROTOCOL_TCP ->
+                if (range) R.string.rule_at_tcp_ports else R.string.rule_at_tcp_port
+            IFirewall.PROTOCOL_UDP ->
+                if (range) R.string.rule_at_udp_ports else R.string.rule_at_udp_port
+            else -> if (range) R.string.rule_at_ports else R.string.rule_at_port
+        }
+    return getString(format, summary, port)
+}
 
 /** The rules of one app, or with a null packageName those for all of the user's apps. */
 fun Firewall.rules(userId: Int, packageName: String?) =

@@ -46,6 +46,8 @@ final class FirewallMaps {
     static final int SCOPE_LIMITS = 1 << 14;
     /** The scope subscribes to lists, by the bits of their slots. */
     static final int SCOPE_LISTS = 1 << 15;
+    /** The scope blocks domains on a port, whose answers' addresses are learned for that port. */
+    static final int SCOPE_LEARNED_BLOCKS = 1 << 20;
     static final int LIST_SLOTS = 64;
     static final int SCOPE_ALLOWS = SCOPE_IP_ALLOWS | SCOPE_PORT_ALLOWS | SCOPE_LEARNED;
     /** A domain matches its own bits; a parent domain matches only its subdomain bits. */
@@ -59,6 +61,8 @@ final class FirewallMaps {
     static final int SLOTS = 32;
     /** Limit 0 is every network; rule entries hold bits for each limit. */
     static final int LIMITS = 16;
+    /** The ports of a scope's limits are port entries under the scope with this set. */
+    static final int LIMIT_PORTS_SCOPE = 1 << 29;
 
     static final String[] COUNTERS = {
             "egress_drop_all",
@@ -87,10 +91,13 @@ final class FirewallMaps {
             "lan",
             "list",
             "list for all apps",
+            "domain",
+            "domain for all apps",
     };
     /** The FW_REFUSED_* bits, the most specific reason first. */
     static final int[] REFUSAL_REASON_ORDER = {
             2, 3, 5, 6, 4, 7,
+            11, 12,
             9, 10,
             8,
             1, 0,
@@ -118,7 +125,7 @@ final class FirewallMaps {
             int limits);
     static native int nativeSetLan(byte[] address, int prefixLength, int kind);
     static native int nativeSetDomain(int scope, String domain, long bits);
-    static native int nativeSetLimits(int scope, long[] only, long[] except);
+    static native int nativeSetLimits(int scope, long[] only, long[] except, int ported);
     static native int nativeSetPort(int scope, int protocol, int port, int prefixLength,
             int bits);
     static native void nativeForgetLearned(int scope);

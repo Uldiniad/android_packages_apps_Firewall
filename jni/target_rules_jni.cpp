@@ -32,11 +32,12 @@ jint nativeSetUserFlags(JNIEnv*, jclass, jint user, jint flags) {
 }
 
 // Limit 0 is every network, so the arrays start at limit 1; empty ones delete the scope's limits.
-jint nativeSetLimits(JNIEnv* env, jclass, jint scope, jlongArray only, jlongArray except) {
+jint nativeSetLimits(JNIEnv* env, jclass, jint scope, jlongArray only, jlongArray except,
+                     jint ported) {
     jsize count = env->GetArrayLength(only);
     if (count == 0) return unset(gRules.scopeLimits, static_cast<uint32_t>(scope));
     if (count >= FW_LIMITS || env->GetArrayLength(except) != count) return EINVAL;
-    fw_limits limits = {};
+    fw_limits limits = {.ported = static_cast<__u32>(ported)};
     env->GetLongArrayRegion(only, 0, count, reinterpret_cast<jlong*>(&limits.only[1]));
     env->GetLongArrayRegion(except, 0, count, reinterpret_cast<jlong*>(&limits.except[1]));
     return set(gRules.scopeLimits, static_cast<uint32_t>(scope), limits);
@@ -68,7 +69,7 @@ jint nativeSetPort(JNIEnv*, jclass, jint scope, jint protocol, jint port, jint p
     return setOrUnset(gRules.portRules, key, static_cast<uint32_t>(bits));
 }
 
-// Drops the addresses learned for a scope, whose domain allow rules changed.
+// Drops the addresses learned for a scope, whose domain allow rules or blocks with a port changed.
 void nativeForgetLearned(JNIEnv*, jclass, jint scope) {
     std::vector<fw_learned_key> keys;
     gRules.learned.iterate([&](const fw_learned_key& key) -> android::base::Result<void> {
@@ -82,7 +83,7 @@ const JNINativeMethod kMethods[] = {
         {"nativeSetUserFlags", "(II)I", reinterpret_cast<void*>(nativeSetUserFlags)},
         {"nativeSetIp", "(I[BIZI)I", reinterpret_cast<void*>(nativeSetIp)},
         {"nativeSetDomain", "(ILjava/lang/String;J)I", reinterpret_cast<void*>(nativeSetDomain)},
-        {"nativeSetLimits", "(I[J[J)I", reinterpret_cast<void*>(nativeSetLimits)},
+        {"nativeSetLimits", "(I[J[JI)I", reinterpret_cast<void*>(nativeSetLimits)},
         {"nativeSetPort", "(IIIII)I", reinterpret_cast<void*>(nativeSetPort)},
         {"nativeForgetLearned", "(I)V", reinterpret_cast<void*>(nativeForgetLearned)},
 };

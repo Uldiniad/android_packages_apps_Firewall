@@ -50,8 +50,11 @@ interface Maps {
      * prefixLength bits; protocol 0 is both; 0 deletes.
      */
     int setPort(int scope, int protocol, int port, int prefixLength, int bits);
-    /** The scope's network limits from limit 1 on, as network bits; empty deletes. */
-    int setLimits(int scope, long[] only, long[] except);
+    /**
+     * The scope's limits from limit 1 on, as network bits, and the bits of those that name a port;
+     * empty deletes.
+     */
+    int setLimits(int scope, long[] only, long[] except, int ported);
     /** Drops the addresses learned from answers for the scope's allowed domains. */
     void forgetLearned(int scope);
     /** The slots of the lists the scope subscribes to, as bits; 0 deletes. */
@@ -139,8 +142,8 @@ interface Maps {
         @Override public int setDomain(int scope, String domain, long bits) {
             return FirewallMaps.nativeSetDomain(scope, domain, bits);
         }
-        @Override public int setLimits(int scope, long[] only, long[] except) {
-            return FirewallMaps.nativeSetLimits(scope, only, except);
+        @Override public int setLimits(int scope, long[] only, long[] except, int ported) {
+            return FirewallMaps.nativeSetLimits(scope, only, except, ported);
         }
         @Override public int setPort(int scope, int protocol, int port, int prefixLength,
                 int bits) {

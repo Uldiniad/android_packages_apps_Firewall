@@ -20,6 +20,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 import static android.net.ConnectivityManager.FIREWALL_CHAIN_OEM_DENY_1;
@@ -100,13 +101,18 @@ public class TargetRulesTest extends ServiceTestBase {
     public void malformedRulesAreRejectedByPosition() {
         FirewallService service = start();
         TargetRules targets = service.feature(TargetRules.class);
+        // An incoming rule needs a port, and a sender that's anyone, the local network or a range.
+        FirewallRule noPort = rule(null, false, TargetRule.INCOMING,
+                IFirewall.INCOMING_FROM_ANYONE);
+        FirewallRule nobody = rule(null, false, TargetRule.INCOMING, "nowhere");
+        nobody.port = "22";
         int[] rejected = targets.addRulesInternal(rules(
                 rule(null, false, TargetRule.DOMAIN, "ads.test"),
                 rule(null, false, TargetRule.DOMAIN, "not a domain"),
                 rule(null, false, TargetRule.PORT, "65536"),
                 rule("org.example.uninstalled", false, TargetRule.PORT, "443"),
-                rule(null, true, TargetRule.ADDRESS, "2001:db8::/32")));
-        assertEquals(List.of(1, 2, 3), Arrays.stream(rejected).boxed().toList());
+                rule(null, true, TargetRule.ADDRESS, "2001:db8::/32"), noPort, nobody));
+        assertEquals(List.of(1, 2, 3, 5, 6), Arrays.stream(rejected).boxed().toList());
         assertEquals(2, targets.getRulesInternal(0, null).length);
     }
 
@@ -291,6 +297,60 @@ public class TargetRulesTest extends ServiceTestBase {
         mMaps.forgotten.clear();
         targets.removeRulesInternal(rules(blocked));
         assertTrue(mMaps.forgotten.contains(UID));
+    }
+
+    @Test
+    public void incomingRulesGoInTheirOwnScopeUnderALimitForTheirPort() {
+        FirewallService service = start();
+        TargetRules targets = service.feature(TargetRules.class);
+        FirewallRule anyone = rule(PACKAGE, false, TargetRule.INCOMING,
+                IFirewall.INCOMING_FROM_ANYONE);
+        anyone.port = "8080";
+        anyone.protocol = IFirewall.PROTOCOL_TCP;
+        FirewallRule local = rule(PACKAGE, true, TargetRule.INCOMING,
+                IFirewall.INCOMING_FROM_LOCAL_NETWORK);
+        local.port = "8080";
+        local.protocol = IFirewall.PROTOCOL_TCP;
+        FirewallRule one = rule(PACKAGE, false, TargetRule.INCOMING, "192.0.2.4");
+        one.port = "9000-9001";
+        assertEquals(0, targets.addRulesInternal(rules(anyone, local, one)).length);
+        String in = "in-" + UID;
+        // Limits 1 to 3 are ports 9000 to 9001, then TCP port 8080 from anyone and from the local
+        // network.
+        assertEquals(List.of(List.of(0L, 0L), List.of(0L, 0L), List.of(0L, 0L)),
+                mMaps.limits.get(in));
+        assertEquals(0b1110, (int) mMaps.ported.get(in));
+        assertEquals(1 << 3, (int) mMaps.localNetwork.get(in));
+        assertEquals(Map.of("ports-" + in + ":9000-9001/0", 1 << 1,
+                "ports-" + in + ":8080/6", 1 << 2 | 1 << 3),
+                withPrefix(mMaps.ports, "ports-" + in + ":"));
+        // Lookups find only the narrowest range, so it carries the wider range's limits too.
+        assertEquals(Map.of(in + ":block:0.0.0.0/0", 1 << 2, in + ":block:::/0", 1 << 2,
+                in + ":allow:0.0.0.0/0", 1 << 3, in + ":allow:::/0", 1 << 3,
+                in + ":block:192.0.2.4/32", 1 << 1 | 1 << 2), withPrefix(mMaps.ipLimits, in + ":"));
+        // The app's scope only says it has incoming rules; their limits are their scope's.
+        assertEquals(FirewallMaps.SCOPE_INCOMING,
+                mMaps.uids.get(UID) & ~FirewallMaps.NO_LAN);
+        assertTrue(mMaps.limits.containsKey("in-" + Process.toSdkSandboxUid(UID)));
+    }
+
+    @Test
+    public void blockedAppsWithIncomingAllowRulesStayOffTheOemDenyChain() {
+        FirewallService service = start();
+        TargetRules targets = service.feature(TargetRules.class);
+        service.setAppRulesInternal(PACKAGE, 0, FirewallMaps.BLOCK_ALL);
+        FirewallRule local = rule(PACKAGE, true, TargetRule.INCOMING,
+                IFirewall.INCOMING_FROM_LOCAL_NETWORK);
+        local.port = "8080";
+        targets.addRulesInternal(rules(local));
+        verify(mConnectivity).setUidFirewallRule(FIREWALL_CHAIN_OEM_DENY_1, UID,
+                FIREWALL_RULE_DEFAULT);
+    }
+
+    private static <V> Map<String, V> withPrefix(Map<String, V> map, String prefix) {
+        Map<String, V> kept = new TreeMap<>(map);
+        kept.keySet().removeIf(key -> !key.startsWith(prefix));
+        return kept;
     }
 
     @Test

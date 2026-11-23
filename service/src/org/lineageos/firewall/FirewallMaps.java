@@ -48,8 +48,15 @@ final class FirewallMaps {
     static final int SCOPE_LISTS = 1 << 15;
     /** The scope blocks domains on a port, whose answers' addresses are learned for that port. */
     static final int SCOPE_LEARNED_BLOCKS = 1 << 20;
+    /** The scope has rules for connections others open to its apps, in its incoming scope. */
+    static final int SCOPE_INCOMING_BLOCKS = 1 << 21;
+    static final int SCOPE_INCOMING_ALLOWS = 1 << 22;
+    static final int SCOPE_INCOMING = SCOPE_INCOMING_BLOCKS | SCOPE_INCOMING_ALLOWS;
+    /** A scope with this set holds the incoming rules of the scope without it. */
+    static final int INCOMING_SCOPE = 1 << 30;
     static final int LIST_SLOTS = 64;
-    static final int SCOPE_ALLOWS = SCOPE_IP_ALLOWS | SCOPE_PORT_ALLOWS | SCOPE_LEARNED;
+    static final int SCOPE_ALLOWS = SCOPE_IP_ALLOWS | SCOPE_PORT_ALLOWS | SCOPE_LEARNED
+            | SCOPE_INCOMING_ALLOWS;
     /** A domain matches its own bits; a parent domain matches only its subdomain bits. */
     static final int DOMAIN_BLOCK = 1;
     static final int DOMAIN_BLOCK_SUBDOMAINS = 1 << 1;
@@ -93,16 +100,19 @@ final class FirewallMaps {
             "list for all apps",
             "domain",
             "domain for all apps",
+            "incoming",
+            "incoming for all apps",
     };
     /** The FW_REFUSED_* bits, the most specific reason first. */
     static final int[] REFUSAL_REASON_ORDER = {
             2, 3, 5, 6, 4, 7,
             11, 12,
+            13, 14,
             9, 10,
             8,
             1, 0,
     };
-    static final String[] REFUSAL_DIRECTIONS = {"connect", "out", "in"};
+    static final String[] REFUSAL_DIRECTIONS = {"connect", "out", "in", "incoming"};
 
 
     static {
@@ -125,7 +135,8 @@ final class FirewallMaps {
             int limits);
     static native int nativeSetLan(byte[] address, int prefixLength, int kind);
     static native int nativeSetDomain(int scope, String domain, long bits);
-    static native int nativeSetLimits(int scope, long[] only, long[] except, int ported);
+    static native int nativeSetLimits(int scope, long[] only, long[] except, int ported,
+            int localNetwork);
     static native int nativeSetPort(int scope, int protocol, int port, int prefixLength,
             int bits);
     static native void nativeForgetLearned(int scope);

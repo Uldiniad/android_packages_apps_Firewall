@@ -62,6 +62,20 @@
     <string name="port_invalid">Enter a port from 1 to 65535, or a range like 6881-6889.</string>
     <!-- Under domains being added: allow rules and rules with a port act on the domain's addresses, which other sites can share. -->
     <string name="domain_addresses_footer">Allow rules and rules with a port act on the IP addresses a domain uses, so other sites at those addresses are allowed or blocked too.</string>
+    <!-- For a port rule: whether it covers connections the apps open to other devices, or connections others open to a port on this phone. -->
+    <string name="direction_label">Direction</string>
+    <string name="direction_outgoing">Outgoing</string>
+    <string name="direction_incoming">Incoming</string>
+    <!-- For an incoming port rule: who the connections come from. -->
+    <string name="sender_label">From</string>
+    <string name="sender_anyone">Anyone</string>
+    <string name="sender_local_network">Devices on the local network</string>
+    <string name="sender_address">An IP address</string>
+    <string name="sender_address_label">IP address</string>
+    <string name="sender_address_hint">Like 192.0.2.4, or a range like 192.0.2.0/24</string>
+    <string name="sender_address_invalid">Enter an IP address, or a range like 192.0.2.0/24.</string>
+    <!-- Under incoming port rules being added. -->
+    <string name="incoming_footer">Incoming rules cover connections that other devices open to a port on this phone, and for UDP, everything sent to the port. They don\'t cover other apps on this phone.</string>
     <!-- For a port rule, and an address or domain rule with a port: the protocols it covers. -->
     <string name="protocol_label">Protocol</string>
     <string name="protocol_both">TCP and UDP</string>
@@ -80,6 +94,15 @@
     <string name="rule_blocked_udp">Blocked for UDP</string>
     <string name="rule_allowed_tcp">Allowed for TCP</string>
     <string name="rule_allowed_udp">Allowed for UDP</string>
+    <!-- Summaries of an incoming port rule, and with who the connections come from. -->
+    <string name="rule_incoming_blocked">Blocked for incoming</string>
+    <string name="rule_incoming_allowed">Allowed for incoming</string>
+    <string name="rule_incoming_blocked_tcp">Blocked for incoming TCP</string>
+    <string name="rule_incoming_allowed_tcp">Allowed for incoming TCP</string>
+    <string name="rule_incoming_blocked_udp">Blocked for incoming UDP</string>
+    <string name="rule_incoming_allowed_udp">Allowed for incoming UDP</string>
+    <string name="rule_from_local_network"><xliff:g id="rule" example="Blocked for incoming">%1$s</xliff:g> · from the local network</string>
+    <string name="rule_from_address"><xliff:g id="rule" example="Blocked for incoming">%1$s</xliff:g> · from <xliff:g id="address" example="192.0.2.4/32">%2$s</xliff:g></string>
     <!-- A rule's summary with the port an address or domain rule is limited to, or the range of ports. -->
     <string name="rule_at_port"><xliff:g id="rule" example="Blocked">%1$s</xliff:g> · port <xliff:g id="port" example="443">%2$s</xliff:g></string>
     <string name="rule_at_ports"><xliff:g id="rule" example="Blocked">%1$s</xliff:g> · ports <xliff:g id="ports" example="6881-6889">%2$s</xliff:g></string>

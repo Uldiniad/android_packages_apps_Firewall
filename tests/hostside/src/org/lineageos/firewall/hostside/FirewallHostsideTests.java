@@ -21,7 +21,12 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.File;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Runs the helper app's checks, and the ones that need the host: reboots and other users. */
@@ -32,6 +37,7 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     private static final String HTTPS_RULE =
             "block port 443 --tcp --package " + PACKAGE + " --user 0";
     private static final String FIREWALL_APP = "org.lineageos.firewall";
+    private static final String LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK";
     private static final String APP_TESTS = "org.lineageos.firewall.app.tests";
     private static final String NO_INTERNET_APK = "FirewallNoInternetTestApp.apk";
     private static final String NO_INTERNET_UPDATE_APK = "FirewallNoInternetUpdateTestApp.apk";
@@ -275,6 +281,74 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
         }
     }
 
+    /** The phone's Wi-Fi IPv4 address, or null without one. */
+    private String wifiAddress() throws Exception {
+        Matcher inet = Pattern.compile("inet (\\d+\\.\\d+\\.\\d+\\.\\d+)/")
+                .matcher(shell("ip -4 -o addr show wlan0"));
+        return inet.find() ? inet.group(1) : null;
+    }
+
+    /**
+     * Runs the app's server at the port while this host keeps connecting to it over Wi-Fi; whether
+     * the host reached it, or with reached false didn't, as wanted.
+     */
+    private boolean served(String phone, int port, boolean reached) throws Exception {
+        AtomicBoolean done = new AtomicBoolean();
+        Thread client = new Thread(() -> {
+            while (!done.get()) {
+                try (Socket socket = new Socket()) {
+                    socket.connect(new InetSocketAddress(phone, port), 1000);
+                    Thread.sleep(200);
+                } catch (IOException | InterruptedException e) {
+                    // The server isn't up yet, or the firewall drops the handshake.
+                }
+            }
+        });
+        client.start();
+        try {
+            return runDeviceTests(options("HostChecks", reached ? "reached" : "notReached", 0)
+                    .addInstrumentationArg("port", Integer.toString(port))
+                    .setCheckResults(false));
+        } finally {
+            done.set(true);
+            client.join();
+        }
+    }
+
+    // The service writes the rules in the app's incoming scope, and the BPF programs check what
+    // arrives from this host.
+    @Test
+    public void incomingRulesDecideWhoReachesTheAppsServer() throws Exception {
+        String phone = wifiAddress();
+        assumeTrue("Needs Wi-Fi", phone != null);
+        int port = 8080;
+        // AOSP keeps apps without the permission off the LAN, where this host can be.
+        shell("pm grant " + PACKAGE + " " + LOCAL_NETWORK);
+        String block = "block incoming any --port " + port + " --tcp --package " + PACKAGE;
+        String[] allow = {null};
+        try {
+            assumeTrue("The host can't reach the phone", served(phone, port, true));
+            shell("cmd firewall add-rule " + block);
+            assertTrue(served(phone, port, false));
+            // The refusals name this host as the phone sees it; an allow rule for it wins.
+            Pattern refused = Pattern.compile(Pattern.quote(PACKAGE + " user 0, incoming tcp ")
+                    + "([0-9.]+):" + port + " refused");
+            waitUntil("The refusal was not listed", 10_000, () -> {
+                Matcher host = refused.matcher(shell("dumpsys firewall"));
+                if (!host.find()) return false;
+                allow[0] = "allow incoming " + host.group(1) + " --port " + port + " --tcp"
+                        + " --package " + PACKAGE;
+                return true;
+            });
+            shell("cmd firewall add-rule " + allow[0]);
+            assertTrue(served(phone, port, true));
+        } finally {
+            if (allow[0] != null) shell("cmd firewall remove-rule " + allow[0]);
+            shell("cmd firewall remove-rule " + block);
+            shell("pm revoke " + PACKAGE + " " + LOCAL_NETWORK);
+        }
+    }
+
     private boolean looksUp(String host) throws Exception {
         return runDeviceTests(options("HostChecks", "looksUp", 0)
                 .addInstrumentationArg("host", host).setCheckResults(false));
@@ -324,6 +398,8 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
 
     @Test
     public void vpnBehavior() throws Exception {
+        // Tradefed grants the helper app what it requests; the VPN's LAN test needs it without.
+        shell("pm revoke " + PACKAGE + " " + LOCAL_NETWORK);
         assertTrue(run("VpnTests", null, 0));
     }
 
@@ -479,7 +555,7 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
             shell("am wait-for-broadcast-idle");
             int uid = Integer.parseInt(shell("pm list packages -U --user " + user + " " + PACKAGE)
                     .replaceAll("(?s).*uid:([0-9]+).*", "$1"));
-            // The helper app doesn't request ACCESS_LOCAL_NETWORK, so it gets the NO_LAN bit.
+            // The helper app doesn't hold ACCESS_LOCAL_NETWORK there, so it gets the NO_LAN bit.
             assertTrue(shell("dumpsys firewall").matches("(?s).*UIDs in map: \\{.*\\b" + uid
                     + "=64\\b.*"));
         } finally {

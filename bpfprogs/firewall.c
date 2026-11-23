@@ -126,6 +126,7 @@ struct l4_info {
     __u32 l4_offset;
     __u8 protocol;
     __u16 port;
+    __u16 local_port;
     bool v6;
     __u32 addr[4];
 };
@@ -159,12 +160,16 @@ static __always_inline bool parse_l4(struct __sk_buff* skb, struct l4_info* info
     }
     info->l4_offset = l4_offset;
     info->port = 0;
+    info->local_port = 0;
     if (info->protocol == IPPROTO_TCP || info->protocol == IPPROTO_UDP) {
-        // TCP puts its ports where UDP does.
-        __be16 port;
-        __u32 offset = egress ? offsetof(struct udphdr, dest) : offsetof(struct udphdr, source);
-        if (bpf_skb_load_bytes(skb, l4_offset + offset, &port, 2)) return false;
-        info->port = __builtin_bswap16(port);
+        // TCP puts its ports where UDP does: the source's, then the destination's.
+        __be16 ports[2];
+        if (bpf_skb_load_bytes(skb, l4_offset + offsetof(struct udphdr, source), ports,
+                               sizeof(ports))) {
+            return false;
+        }
+        info->port = __builtin_bswap16(ports[egress]);
+        info->local_port = __builtin_bswap16(ports[!egress]);
     }
     return true;
 }
@@ -173,6 +178,7 @@ static __always_inline bool parse_l4(struct __sk_buff* skb, struct l4_info* info
 #include "local_network.h"
 #include "block_lists.h"
 #include "socket_tags.h"
+#include "incoming_rules.h"
 
 // 127.0.0.0/8 and ::1, with IPv4-mapped addresses taken as IPv4.
 static __always_inline bool is_loopback(const struct l4_info* info) {
@@ -210,6 +216,10 @@ static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 
         count(FW_C_ALLOWED_BY_RULE);
         return false;
     }
+    if ((rules & FW_SCOPE_INCOMING_ALLOWS) && incoming_replies(uid, info, path)) {
+        count(FW_C_ALLOWED_BY_RULE);
+        return false;
+    }
     if (blocked_all || blocked_here) return true;
 
     // An app's own DNS, plain or over TLS or QUIC. With domain rules, the app looks names up
@@ -228,6 +238,10 @@ static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 
     __u32 user_scope = FW_USER_SCOPE | user;
     __u32 uflags = user_flags_of(user);
     if ((uflags & FW_SCOPE_ALLOWS) && scope_allows(user_scope, uflags, info, path)) {
+        count(FW_C_ALLOWED_BY_RULE);
+        return false;
+    }
+    if ((uflags & FW_SCOPE_INCOMING_ALLOWS) && incoming_replies(user_scope, info, path)) {
         count(FW_C_ALLOWED_BY_RULE);
         return false;
     }
@@ -268,6 +282,8 @@ int egress(struct __sk_buff* skb) {
     return 0;
 }
 
+// Incoming rules decide the connections others open to an app; otherwise only a blocked app's
+// packets in are checked.
 SEC("cgroup_skb/ingress")
 int ingress(struct __sk_buff* skb) {
     __u32 ifindex = skb->ifindex;
@@ -275,11 +291,21 @@ int ingress(struct __sk_buff* skb) {
     __u32 uid = tagged_uid(bpf_get_socket_cookie(skb), bpf_get_socket_uid(skb));
     bool subject;
     __u32 rules = rules_for(uid, &subject);
-    if (!subject || !rules) return 1;
+    if (!subject) return 1;
+    __u32 uflags = user_flags_of(uid / AID_USER_OFFSET);
     struct fw_path path = {.ifindex = ifindex};
-    if (!(rules & FW_RULE_BLOCK_ALL) && !network_blocked(uid, rules, &path)) return 1;
+    bool blocked = (rules & FW_RULE_BLOCK_ALL) || network_blocked(uid, rules, &path);
+    if (!blocked && !((rules | uflags) & FW_SCOPE_INCOMING)) return 1;
     struct l4_info info = {};
     bool parsed = parse_l4(skb, &info, false);
+    int incoming = parsed ? incoming_verdict(skb, uid, rules, uflags, blocked, &info, &path) : -1;
+    if (incoming == 1) return 1;
+    if (incoming == 0) {
+        count(FW_C_INGRESS_DROP);
+        note_refusal(uid, rules, FW_REFUSAL_INCOMING, &info, parsed, &path);
+        return 0;
+    }
+    if (!blocked) return 1;
     // A blocked app still hears back from what its allow rules let it reach.
     if ((rules & FW_SCOPE_ALLOWS) && parsed && scope_allows(uid, rules, &info, &path)) return 1;
     count(FW_C_INGRESS_DROP);

@@ -75,14 +75,18 @@ private fun RuleList(
     val remove = rememberRemoveRuleDialog()
     val names = rememberNetworkNames(userId)
     val shown =
-        rules?.filter {
-            it.kind == kind.kind && it.value.contains(searchQuery(), ignoreCase = true)
+        rules?.filter { rule ->
+            kind.covers(rule) &&
+                listOfNotNull(rule.value, rule.port).any {
+                    it.contains(searchQuery(), ignoreCase = true)
+                }
         } ?: return
     LazyCategory(
         count = shown.size,
         key = {
             with(shown[it]) {
-                "$allow:$value:$subdomains:$protocol:$port:$exceptNetworks:${networks?.toList()}"
+                "$kind:$allow:$value:$subdomains:$protocol:$port:$exceptNetworks:" +
+                    "${networks?.toList()}"
             }
         },
         bottomPadding = bottomPadding,

@@ -71,11 +71,18 @@
 #define FW_SCOPE_LISTS (1u << 15)
 // The scope blocks domains on a port, whose answers' addresses are learned for that port.
 #define FW_SCOPE_LEARNED_BLOCKS (1u << 20)
+// The scope has rules for connections others open to its apps, under the scope with
+// FW_INCOMING_SCOPE set.
+#define FW_SCOPE_INCOMING_BLOCKS (1u << 21)
+#define FW_SCOPE_INCOMING_ALLOWS (1u << 22)
+#define FW_SCOPE_INCOMING (FW_SCOPE_INCOMING_BLOCKS | FW_SCOPE_INCOMING_ALLOWS)
+#define FW_INCOMING_SCOPE (1u << 30)
 // A list's domains are in a file netd maps: FW_LISTS_DIR "<slot>-<generation>.names", which holds
 // FW_LIST_NAMES_MAGIC, a count, and the sorted keys of fw_domain_hash with the subdomain bit.
 #define FW_LISTS_DIR "/data/system/firewall_lists/"
 #define FW_LIST_NAMES_MAGIC 0x3153454d414e4c46ULL
-#define FW_SCOPE_ALLOWS (FW_SCOPE_IP_ALLOWS | FW_SCOPE_PORT_ALLOWS | FW_SCOPE_LEARNED)
+#define FW_SCOPE_ALLOWS \
+    (FW_SCOPE_IP_ALLOWS | FW_SCOPE_PORT_ALLOWS | FW_SCOPE_LEARNED | FW_SCOPE_INCOMING_ALLOWS)
 #define FW_SCOPE_BLOCKS (FW_SCOPE_IP_BLOCKS | FW_SCOPE_PORT_BLOCKS | FW_SCOPE_LEARNED_BLOCKS)
 // The DNS-over-HTTPS servers browsers switch to on their own, by address and by name, which apps
 // under domain rules may not reach, as their own DNS.
@@ -100,6 +107,8 @@
 #define FW_LIMIT_PORTS_SCOPE (1u << 29)
 // A learned answer's limits for block rules with a port, above those for allow rules.
 #define FW_LEARNED_BLOCKS_SHIFT 16
+// With a port, that the far end is on the local network, for incoming rules from there.
+#define FW_AT_LOCAL_NETWORK (1u << 24)
 
 enum fw_counter {
     FW_C_EGRESS_DROP_ALL,
@@ -132,11 +141,15 @@ enum fw_counter {
 #define FW_REFUSED_USER_LIST (1u << 10)
 #define FW_REFUSED_DOMAIN (1u << 11)
 #define FW_REFUSED_USER_DOMAIN (1u << 12)
+#define FW_REFUSED_INCOMING (1u << 13)
+#define FW_REFUSED_USER_INCOMING (1u << 14)
 
 enum fw_refusal_direction {
     FW_REFUSAL_CONNECT,
     FW_REFUSAL_OUT,
     FW_REFUSAL_IN,
+    // A connection others open to the app, whose port is the phone's.
+    FW_REFUSAL_INCOMING,
 };
 
 // An app's refusals one way to or from one far end. The far end's address and port are as sent,
@@ -231,9 +244,9 @@ struct fw_named_networks {
 struct fw_limits {
     __u64 only[FW_LIMITS];
     __u64 except[FW_LIMITS];
-    // The limits that name a port.
+    // The limits that name a port, and those of them for senders on the local network.
     __u32 ported;
-    __u32 unused;
+    __u32 local_network;
 };
 
 // Shared with netd's lookup check, so both decide alike.

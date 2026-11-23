@@ -230,13 +230,90 @@ class FirewallBpfTest : public ::testing::Test {
     // Sends to ff02::1 out of the test interface; returns 0 or the errno of sendto().
     int sendMulticast(int port, const std::vector<uint8_t>& payload = {1}) {
         unique_fd fd = testSocket(AF_INET6);
+        return sendMulticastFrom(fd.get(), port, payload);
+    }
+
+    int sendMulticastFrom(int fd, int port, const std::vector<uint8_t>& payload = {1}) {
         int ifindex = mTun.ifindex();
-        setsockopt(fd.get(), IPPROTO_IPV6, IPV6_MULTICAST_IF, &ifindex, sizeof(ifindex));
+        setsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_IF, &ifindex, sizeof(ifindex));
         sockaddr_in6 to = {.sin6_family = AF_INET6, .sin6_port = htons(port)};
         inet_pton(AF_INET6, "ff02::1", &to.sin6_addr);
-        ssize_t sent = sendto(fd.get(), payload.data(), payload.size(), 0,
+        ssize_t sent = sendto(fd, payload.data(), payload.size(), 0,
                               reinterpret_cast<sockaddr*>(&to), sizeof(to));
         return sent < 0 ? errno : 0;
+    }
+
+    // The test app's socket for what arrives at |port|: UDP, or TCP listening.
+    unique_fd serving(int type, uint16_t port) {
+        unique_fd fd(socket(AF_INET6, type | SOCK_CLOEXEC, 0));
+        EXPECT_LE(0, fd.get());
+        EXPECT_EQ(0, qtaguid_tagSocket(fd.get(), 0, kTestUid));
+        sockaddr_in6 at = {.sin6_family = AF_INET6, .sin6_port = htons(port)};
+        EXPECT_EQ(0, bind(fd.get(), reinterpret_cast<sockaddr*>(&at), sizeof(at))) << port;
+        if (type == SOCK_STREAM) EXPECT_EQ(0, listen(fd.get(), 1));
+        return fd;
+    }
+
+    // An address on the test interface's network that isn't the phone's.
+    in6_addr peer() const {
+        in6_addr address = mTun.srcAddr();
+        address.s6_addr[15] ^= 2;
+        return address;
+    }
+
+    // Writes a packet from the peer's |from| port to the phone's |port| into the test interface,
+    // as if it arrived: a UDP datagram, or a TCP segment with |tcpFlags|.
+    void arrive(uint8_t protocol, uint16_t from, uint16_t port, uint8_t tcpFlags = 0) {
+        std::vector<uint8_t> l4 = {static_cast<uint8_t>(from >> 8), static_cast<uint8_t>(from),
+                                   static_cast<uint8_t>(port >> 8), static_cast<uint8_t>(port)};
+        size_t checksum;
+        if (protocol == IPPROTO_UDP) {
+            l4.insert(l4.end(), {0, 9, 0, 0, 'x'});
+            checksum = 6;
+        } else {
+            l4.resize(20);
+            l4[12] = 5 << 4;  // The data offset, in words.
+            l4[13] = tcpFlags;
+            l4[14] = l4[15] = 0xff;
+            checksum = 16;
+        }
+        in6_addr source = peer();
+        std::vector<uint8_t> packet = {0x60, 0, 0, 0, 0, static_cast<uint8_t>(l4.size()),
+                                       protocol, 64};
+        packet.insert(packet.end(), source.s6_addr, source.s6_addr + 16);
+        packet.insert(packet.end(), mTun.srcAddr().s6_addr, mTun.srcAddr().s6_addr + 16);
+        // Over the pseudo-header: the addresses, the length and the protocol.
+        uint32_t sum = l4.size() + protocol;
+        for (size_t i = 8; i < 40; i += 2) sum += packet[i] << 8 | packet[i + 1];
+        for (size_t i = 0; i < l4.size(); i += 2) {
+            sum += l4[i] << 8 | (i + 1 < l4.size() ? l4[i + 1] : 0);
+        }
+        while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
+        uint16_t check = ~sum ? static_cast<uint16_t>(~sum) : 0xffff;
+        l4[checksum] = check >> 8;
+        l4[checksum + 1] = check & 0xff;
+        packet.insert(packet.end(), l4.begin(), l4.end());
+        ASSERT_EQ(static_cast<ssize_t>(packet.size()),
+                  write(mTun.getFdForTesting(), packet.data(), packet.size()));
+    }
+
+    // Whether a datagram came to |fd|.
+    bool received(int fd) {
+        pollfd p = {.fd = fd, .events = POLLIN};
+        uint8_t byte;
+        return poll(&p, 1, 1000) > 0 && recv(fd, &byte, 1, MSG_DONTWAIT) >= 0;
+    }
+
+    // A refusal of connections from the peer to the phone's |port|, cleared so only refusals
+    // from now on count.
+    fw_refusal_key clearedIncoming(uint8_t protocol, uint16_t port) {
+        fw_refusal_key key = {.uid = kTestUid, .direction = FW_REFUSAL_INCOMING,
+                              .protocol = protocol, .v6 = 1, .port = port};
+        in6_addr from = peer();
+        memcpy(key.addr, &from, sizeof(key.addr));
+        forget("refusal_stats", key);
+        deleteMapEntry(mMaps["refusal_stats"], &key);
+        return key;
     }
 
     // Whether a UDP packet to |port| came out of the test interface.
@@ -840,6 +917,74 @@ TEST_F(FirewallBpfTest, DomainRulesWithAPortApplyToTheirAnswersAtThatPort) {
     EXPECT_TRUE(allowsAnswer(kTestUid, kTestNetId, "allowed.test", nullptr, 0, &allowed, 1));
     EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "203.0.113.10"));
     EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "203.0.113.10", kPort + 1));
+}
+
+constexpr uint16_t kServed = 8080;
+constexpr uint32_t kIncoming = kTestUid | FW_INCOMING_SCOPE;
+constexpr uint8_t kTcpSyn = 0x02;
+constexpr uint8_t kTcpAck = 0x10;
+// The incoming rules' entry for every sender, IPv6's ::/0.
+constexpr fw_scope_ip6_key kAnySender = {.prefixlen = 32, .scope = kIncoming};
+
+TEST_F(FirewallBpfTest, IncomingBlockRulesStopWhatOpensAConnectionAtTheirPort) {
+    // Limit 1 is port 8080 over TCP and UDP.
+    put("scope_limits", kIncoming, fw_limits{.ported = 1u << 1});
+    putLimitPorts(kIncoming, 1, 0, kServed, kServed);
+    put("ip6_block", kAnySender, uint32_t{1u << 1});
+    setRules(FW_SCOPE_INCOMING_BLOCKS);
+    unique_fd udp = serving(SOCK_DGRAM, kServed);
+    unique_fd other = serving(SOCK_DGRAM, kServed + 1);
+    unique_fd tcp = serving(SOCK_STREAM, kServed);
+    arrive(IPPROTO_UDP, 5000, kServed);
+    EXPECT_FALSE(received(udp.get()));
+    arrive(IPPROTO_UDP, 5000, kServed + 1);
+    EXPECT_TRUE(received(other.get()));
+    // A handshake is refused, not what answers a connection.
+    fw_refusal_key refusal = clearedIncoming(IPPROTO_TCP, kServed);
+    arrive(IPPROTO_TCP, 5001, kServed, kTcpSyn);
+    arrive(IPPROTO_TCP, 5002, kServed, kTcpAck);
+    fw_refusal_stats stats = refusalStats(refusal);
+    EXPECT_EQ(1u, stats.count);
+    EXPECT_EQ(FW_REFUSED_INCOMING, stats.reasons);
+
+    // An allow rule for the sender wins.
+    setRules(FW_SCOPE_INCOMING_BLOCKS | FW_SCOPE_INCOMING_ALLOWS);
+    fw_scope_ip6_key sender = {.prefixlen = 32 + 128, .scope = kIncoming};
+    in6_addr from = peer();
+    memcpy(sender.addr, &from, sizeof(sender.addr));
+    put("ip6_allow", sender, uint32_t{1u << 1});
+    arrive(IPPROTO_UDP, 5000, kServed);
+    EXPECT_TRUE(received(udp.get()));
+}
+
+TEST_F(FirewallBpfTest, IncomingAllowRulesLetABlockedAppAnswerFromTheirPort) {
+    // Limit 1 is UDP port 8080.
+    put("scope_limits", kIncoming, fw_limits{.ported = 1u << 1});
+    putLimitPorts(kIncoming, 1, IPPROTO_UDP, kServed, kServed);
+    put("ip6_allow", kAnySender, uint32_t{1u << 1});
+    setRules(FW_RULE_BLOCK_ALL | FW_SCOPE_INCOMING_ALLOWS);
+    unique_fd udp = serving(SOCK_DGRAM, kServed);
+    arrive(IPPROTO_UDP, 5000, kServed);
+    EXPECT_TRUE(received(udp.get()));
+    EXPECT_EQ(0, sendMulticastFrom(udp.get(), kPort));
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+}
+
+TEST_F(FirewallBpfTest, IncomingRulesForTheLocalNetworkNeedTheSenderOnIt) {
+    // Limit 1 is UDP port 8080, from the local network.
+    put("scope_limits", kIncoming, fw_limits{.ported = 1u << 1, .local_network = 1u << 1});
+    putLimitPorts(kIncoming, 1, IPPROTO_UDP, kServed, kServed);
+    put("ip6_block", kAnySender, uint32_t{1u << 1});
+    setRules(FW_SCOPE_INCOMING_BLOCKS);
+    unique_fd udp = serving(SOCK_DGRAM, kServed);
+    arrive(IPPROTO_UDP, 5000, kServed);
+    EXPECT_TRUE(received(udp.get()));
+    fw_ip6_key subnet = {.prefixlen = 64};
+    in6_addr from = peer();
+    memcpy(subnet.addr, &from, sizeof(subnet.addr));
+    put("lan6", subnet, uint32_t{FW_LAN_LOCAL});
+    arrive(IPPROTO_UDP, 5000, kServed);
+    EXPECT_FALSE(received(udp.get()));
 }
 
 }  // namespace

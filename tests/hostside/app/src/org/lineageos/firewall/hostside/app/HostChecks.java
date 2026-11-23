@@ -42,6 +42,18 @@ public class HostChecks {
         return Integer.parseInt(InstrumentationRegistry.getArguments().getString("port", "443"));
     }
 
+    /** Another device reaches the app's server at the "port" argument. */
+    @Test
+    public void reached() throws Exception {
+        assertTrue(Firewall.accepts(port(), 15_000));
+    }
+
+    /** No other device reaches the app's server at the "port" argument. */
+    @Test
+    public void notReached() throws Exception {
+        assertFalse(Firewall.accepts(port(), 8_000));
+    }
+
     /**
      * Turns on quiet mode for the profile the "profile" argument names, as pausing work apps or
      * locking private space does.

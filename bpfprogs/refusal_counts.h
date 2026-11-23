@@ -37,6 +37,9 @@ static __always_inline __u32 refusal_reasons(__u32 uid, __u32 rules, __u8 direct
     __u32 user = uid / AID_USER_OFFSET;
     __u32 user_scope = FW_USER_SCOPE | user;
     __u32 uflags = user_flags_of(user);
+    if (direction == FW_REFUSAL_INCOMING) {
+        return reasons | incoming_reasons(uid, rules, uflags, info, path);
+    }
     if ((rules & FW_SCOPE_IP_BLOCKS) && listed(&ip4_block, &ip6_block, uid, rules, info, path)) {
         reasons |= FW_REFUSED_ADDRESS;
     }
@@ -72,7 +75,9 @@ static __always_inline void note_refusal(__u32 uid, __u32 rules, __u8 direction,
                                          const struct l4_info* info, bool parsed,
                                          const struct fw_path* path) {
     struct fw_refusal_key key = {.uid = uid, .direction = direction, .protocol = info->protocol,
-                                 .v6 = info->v6, .port = info->port};
+                                 .v6 = info->v6,
+                                 .port = direction == FW_REFUSAL_INCOMING ? info->local_port
+                                                                          : info->port};
     __builtin_memcpy(key.addr, info->addr, sizeof(key.addr));
     __u64 now = bpf_ktime_get_boot_ns();
     struct fw_refusal_stats* stats = bpf_map_lookup_elem(&refusal_stats, &key);

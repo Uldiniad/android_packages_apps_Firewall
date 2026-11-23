@@ -96,7 +96,7 @@ static __always_inline __u32 user_flags_of(__u32 user) {
     return flags ? *flags : 0;
 }
 
-// The scope's limits whose port is at, a protocol << 16 | port.
+// The scope's limits whose port is at, a protocol << 16 | port with FW_AT_* bits.
 static __always_inline __u32 limit_ports(__u32 scope, __u32 at) {
     struct fw_port_key key = {.prefixlen = FW_PORT_PREFIX_BITS + 16,
                               .scope = scope | FW_LIMIT_PORTS_SCOPE,
@@ -116,6 +116,7 @@ __u32 fw_scope_limits(__u32 scope, __u64 net, __u32 at);
 __attribute__((noinline)) __u32 fw_scope_limits(__u32 scope, __u64 net, __u32 at) {
     struct fw_limits* limits = bpf_map_lookup_elem(&scope_limits, &scope);
     __u32 ports = limits && limits->ported ? limit_ports(scope, at) : 0;
+    if (limits && !(at & FW_AT_LOCAL_NETWORK)) ports &= ~limits->local_network;
     return fw_limits_on(limits, net, ports);
 }
 

@@ -21,7 +21,8 @@ import java.util.TreeSet;
 /**
  * A rule blocking or allowing an address range, a domain or a remote port, in its normal form,
  * on every network, only on the networks it names, or on all but those. An address range or a
- * domain can name a port too.
+ * domain can name a port too. An incoming rule covers connections others open to a port on the
+ * phone, from the senders its value names.
  */
 record TargetRule(boolean allow, int kind, String value, boolean subdomains, int protocol,
         String port, List<String> networks, boolean exceptNetworks)
@@ -29,6 +30,7 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
     static final int ADDRESS = IFirewall.RULE_ADDRESS;
     static final int DOMAIN = IFirewall.RULE_DOMAIN;
     static final int PORT = IFirewall.RULE_PORT;
+    static final int INCOMING = IFirewall.RULE_INCOMING;
     /** The kinds of network a rule can name, with the network bits that say a network is one. */
     static final Map<String, Integer> NETWORK_KINDS = Map.of(
             "wifi", FirewallMaps.BLOCK_WIFI, "mobile", FirewallMaps.BLOCK_CELLULAR,
@@ -38,7 +40,7 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
     static final String WIFI = "wifi:";
     static final String SIM = "sim:";
     static final String VPN = "vpn:";
-    private static final String[] KINDS = {"address", "domain", "port"};
+    private static final String[] KINDS = {"address", "domain", "port", "incoming"};
     private static final Comparator<List<String>> LISTS = (a, b) -> {
         for (int i = 0; i < Math.min(a.size(), b.size()); i++) {
             int order = a.get(i).compareTo(b.get(i));
@@ -76,6 +78,11 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
                     except);
             case PORT -> new TargetRule(allow, kind, normalPort(value), false,
                     checkProtocol(protocol), null, limits, except);
+            case INCOMING -> {
+                if (named == null) throw new IllegalArgumentException("No port");
+                yield new TargetRule(allow, kind, normalSender(value), false, namedProtocol,
+                        named, limits, except);
+            }
             default -> throw new IllegalArgumentException("Unknown kind " + kind);
         };
     }
@@ -86,6 +93,16 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
             throw new IllegalArgumentException("Unknown protocol " + protocol);
         }
         return protocol;
+    }
+
+    /** Who an incoming rule's connections come from: anyone, the local network or a range. */
+    private static String normalSender(String value) {
+        String sender = value.trim();
+        if (sender.equals(IFirewall.INCOMING_FROM_ANYONE)
+                || sender.equals(IFirewall.INCOMING_FROM_LOCAL_NETWORK)) {
+            return sender;
+        }
+        return Names.parsePrefix(sender).toString();
     }
 
     /** A port or range of ports in its normal form, like 443 or 6881-6889. */
@@ -158,11 +175,27 @@ record TargetRule(boolean allow, int kind, String value, boolean subdomains, int
         return switch (kind) {
             case ADDRESS -> allow ? FirewallMaps.SCOPE_IP_ALLOWS : FirewallMaps.SCOPE_IP_BLOCKS;
             case PORT -> allow ? FirewallMaps.SCOPE_PORT_ALLOWS : FirewallMaps.SCOPE_PORT_BLOCKS;
+            case INCOMING -> allow ? FirewallMaps.SCOPE_INCOMING_ALLOWS
+                    : FirewallMaps.SCOPE_INCOMING_BLOCKS;
             default -> FirewallMaps.SCOPE_DOMAINS | (allow ? FirewallMaps.SCOPE_LEARNED
                     : port != null ? FirewallMaps.SCOPE_LEARNED_BLOCKS : 0);
         };
     }
 
+
+    /** The ranges an incoming rule's senders are in; the local network's are the kernel's. */
+    List<String> senders() {
+        return switch (value) {
+            case IFirewall.INCOMING_FROM_ANYONE, IFirewall.INCOMING_FROM_LOCAL_NETWORK ->
+                    List.of("0.0.0.0/0", "::/0");
+            default -> List.of(value);
+        };
+    }
+
+    /** Whether an incoming rule is for senders on the local network. */
+    boolean fromLocalNetwork() {
+        return kind == INCOMING && value.equals(IFirewall.INCOMING_FROM_LOCAL_NETWORK);
+    }
 
     void write(XmlSerializer serializer, Integer user, String packageName) throws IOException {
         serializer.startTag(null, "rule");

@@ -34,7 +34,9 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -168,6 +170,18 @@ final class Firewall {
             return true;
         } catch (IOException e) {
             return false;
+        }
+    }
+
+    /** Whether a connection comes to a server at the port in time. */
+    static boolean accepts(int port, int timeoutMs) throws IOException {
+        try (ServerSocket server = new ServerSocket(port)) {
+            server.setSoTimeout(timeoutMs);
+            try (Socket client = server.accept()) {
+                return true;
+            } catch (SocketTimeoutException e) {
+                return false;
+            }
         }
     }
 

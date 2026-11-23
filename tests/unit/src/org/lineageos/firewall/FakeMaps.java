@@ -40,8 +40,9 @@ final class FakeMaps implements Maps {
     final Map<String, Integer> ports = new HashMap<>();
     /** Each scope's limits from limit 1 on, as only and except network bits. */
     final Map<String, List<List<Long>>> limits = new HashMap<>();
-    /** The bits of each scope's limits that name a port. */
+    /** The bits of each scope's limits that name a port, and of those for the local network. */
     final Map<String, Integer> ported = new HashMap<>();
+    final Map<String, Integer> localNetwork = new HashMap<>();
     /** Scopes whose learned addresses were dropped. */
     final Set<Integer> forgotten = new HashSet<>();
     /** The slots of each scope's lists, of the lists holding each range, and slots' files. */
@@ -52,11 +53,14 @@ final class FakeMaps implements Maps {
 
     /**
      * A uid, or "u" and the user id for the rules for all of a user's apps; "ports-" leads the
-     * scope of their limits' ports.
+     * scope of their limits' ports, and "in-" that of their incoming rules.
      */
     static String scope(int scope) {
         if ((scope & FirewallMaps.LIMIT_PORTS_SCOPE) != 0) {
             return "ports-" + scope(scope & ~FirewallMaps.LIMIT_PORTS_SCOPE);
+        }
+        if ((scope & FirewallMaps.INCOMING_SCOPE) != 0) {
+            return "in-" + scope(scope & ~FirewallMaps.INCOMING_SCOPE);
         }
         return (scope & FirewallMaps.USER_SCOPE) != 0
                 ? "u" + (scope & ~FirewallMaps.USER_SCOPE) : Integer.toString(scope);
@@ -99,6 +103,7 @@ final class FakeMaps implements Maps {
         ports.clear();
         limits.clear();
         ported.clear();
+        localNetwork.clear();
         scopeLists.clear();
         listRanges.clear();
         listFiles.clear();
@@ -162,8 +167,10 @@ final class FakeMaps implements Maps {
         return put(scope == FirewallMaps.DOH_SCOPE ? dohDomains : domains,
                 scope(scope) + ":" + domain, bits);
     }
-    @Override public int setLimits(int scope, long[] only, long[] except, int ported) {
+    @Override public int setLimits(int scope, long[] only, long[] except, int ported,
+            int localNetwork) {
         put(this.ported, scope(scope), ported);
+        put(this.localNetwork, scope(scope), localNetwork);
         List<List<Long>> written = new ArrayList<>();
         for (int i = 0; i < only.length; i++) written.add(List.of(only[i], except[i]));
         if (written.isEmpty()) limits.remove(scope(scope)); else limits.put(scope(scope), written);

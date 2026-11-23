@@ -207,10 +207,14 @@ final class TargetRules extends Feature {
         }
         Map<Integer, ScopeEntries> entries = new HashMap<>();
         targets.forEach((uid, rules) -> {
-            ScopeEntries scope = entriesLocked(uid, rules);
+            ScopeEntries scope = entriesLocked(uid, side(rules, false));
+            ScopeEntries incoming =
+                    entriesLocked(uid | FirewallMaps.INCOMING_SCOPE, side(rules, true));
+            int flags = scope.flags() | (incoming.flags() & FirewallMaps.SCOPE_INCOMING);
             for (int each : FirewallService.withSdkSandbox(uid)) {
                 entries.put(each, scope);
-                wanted.merge(each, scope.flags(), (a, b) -> a | b);
+                entries.put(each | FirewallMaps.INCOMING_SCOPE, incoming);
+                wanted.merge(each, flags, (a, b) -> a | b);
             }
         });
         // Entries go in before the flags that enable them, and out after.
@@ -244,13 +248,22 @@ final class TargetRules extends Feature {
     @Override
     void writeUserLocked(int userId) {
         int scope = FirewallMaps.USER_SCOPE | userId;
-        ScopeEntries entries = entriesLocked(scope,
-                userTargets.getOrDefault(userId, Set.of()));
+        Set<TargetRule> rules = userTargets.getOrDefault(userId, Set.of());
+        ScopeEntries entries = entriesLocked(scope, side(rules, false));
+        ScopeEntries incoming =
+                entriesLocked(scope | FirewallMaps.INCOMING_SCOPE, side(rules, true));
         writeScopeLocked(scope, entries);
-        int flags = entries.flags();
+        writeScopeLocked(scope | FirewallMaps.INCOMING_SCOPE, incoming);
+        int flags = entries.flags() | (incoming.flags() & FirewallMaps.SCOPE_INCOMING);
         BlockLists lists = mService.feature(BlockLists.class);
         if (lists != null) flags |= lists.userFlagsLocked(userId);
         mService.maps().setUserFlags(userId, flags);
+    }
+
+    /** The rules for what a scope's apps send, or with incoming, for what others send them. */
+    private static List<TargetRule> side(Collection<TargetRule> rules, boolean incoming) {
+        return rules.stream().filter(rule -> (rule.kind() == TargetRule.INCOMING) == incoming)
+                .toList();
     }
 
     /**
@@ -278,20 +291,24 @@ final class TargetRules extends Feature {
     }
 
     /**
-     * The networks a limit needs and those it excludes, as network bits, and the protocol and the
-     * first and last port it names; first is 0 when it names none.
+     * The networks a limit needs and those it excludes, as network bits, the protocol and the
+     * first and last port it names, first 0 when it names none, and whether an incoming rule's
+     * senders must be on the local network.
      */
-    private record Limit(long only, long except, int protocol, int first, int last) {
-        static final Limit EVERY_NETWORK = new Limit(0, 0, 0, 0, 0);
+    private record Limit(long only, long except, int protocol, int first, int last,
+            boolean localNetwork) {
+        static final Limit EVERY_NETWORK = new Limit(0, 0, 0, 0, 0, false);
         static final Comparator<Limit> ORDER = Comparator.comparingLong(Limit::only)
                 .thenComparingLong(Limit::except).thenComparingInt(Limit::protocol)
-                .thenComparingInt(Limit::first).thenComparingInt(Limit::last);
+                .thenComparingInt(Limit::first).thenComparingInt(Limit::last)
+                .thenComparing(Limit::localNetwork);
 
         /** The limit of the networks, with the rule's port. */
         static Limit of(long only, long except, TargetRule rule) {
-            if (rule.port() == null) return new Limit(only, except, 0, 0, 0);
+            if (rule.port() == null) return new Limit(only, except, 0, 0, 0, false);
             int[] range = TargetRule.portRange(rule.port());
-            return new Limit(only, except, rule.protocol(), range[0], range[1]);
+            return new Limit(only, except, rule.protocol(), range[0], range[1],
+                    rule.fromLocalNetwork());
         }
     }
 
@@ -341,6 +358,12 @@ final class TargetRules extends Feature {
                 switch (rule.kind()) {
                     case TargetRule.ADDRESS -> prefixes.merge(
                             Pair.create(rule.value(), rule.allow()), 1 << number, (a, b) -> a | b);
+                    case TargetRule.INCOMING -> {
+                        for (String range : rule.senders()) {
+                            prefixes.merge(Pair.create(range, rule.allow()), 1 << number,
+                                    (a, b) -> a | b);
+                        }
+                    }
                     case TargetRule.PORT -> {
                         int[] range = TargetRule.portRange(rule.value());
                         portRanges.computeIfAbsent(rule.protocol(), p -> new ArrayList<>()).add(
@@ -462,6 +485,15 @@ final class TargetRules extends Feature {
             }
             return ported;
         }
+
+        /** The bits of the limits of incoming rules for senders on the local network. */
+        int localNetwork() {
+            int local = 0;
+            for (int i = 0; i < limits.size(); i++) {
+                if (limits.get(i).localNetwork()) local |= 1 << (i + 1);
+            }
+            return local;
+        }
     }
 
     private static <T> Set<T> union(Set<T> a, Set<T> b) {
@@ -507,7 +539,7 @@ final class TargetRules extends Feature {
                 only[i] = next.limits().get(i).only();
                 except[i] = next.limits().get(i).except();
             }
-            mService.maps().setLimits(scope, only, except, next.ported());
+            mService.maps().setLimits(scope, only, except, next.ported(), next.localNetwork());
         }
         if (!prev.learnedDomains().equals(next.learnedDomains())) mService.maps().forgetLearned(scope);
         if (next.equals(ScopeEntries.EMPTY)) {
@@ -602,8 +634,10 @@ final class TargetRules extends Feature {
                 scope.add(appTargets.getOrDefault(app, Set.of()));
             }
         }
+        // Incoming rules have limits of their own.
+        boolean incoming = rule.kind() == TargetRule.INCOMING;
         for (Set<TargetRule> rules : scope) {
-            for (TargetRule other : rules) {
+            for (TargetRule other : side(rules, incoming)) {
                 List<Object> key = limitKey(other);
                 if (key != null) limits.add(key);
             }
@@ -619,7 +653,8 @@ final class TargetRules extends Feature {
             return rule.networks().isEmpty() ? null
                     : List.of(rule.networks(), rule.exceptNetworks());
         }
-        return List.of(rule.networks(), rule.exceptNetworks(), rule.protocol(), rule.port());
+        return List.of(rule.networks(), rule.exceptNetworks(), rule.protocol(), rule.port(),
+                rule.fromLocalNetwork());
     }
 
     void removeRulesInternal(FirewallRule[] rules) {
@@ -677,6 +712,7 @@ final class TargetRules extends Feature {
                 case "address" -> TargetRule.ADDRESS;
                 case "domain" -> TargetRule.DOMAIN;
                 case "port" -> TargetRule.PORT;
+                case "incoming" -> TargetRule.INCOMING;
                 default -> throw new IllegalArgumentException("Unknown kind " + kind);
             };
             rule.value = shell.getNextArgRequired();
@@ -731,13 +767,15 @@ final class TargetRules extends Feature {
 
     @Override
     void onShellHelp(PrintWriter pw) {
-        pw.println("  add-rule|remove-rule block|allow address|domain|port VALUE");
+        pw.println("  add-rule|remove-rule block|allow address|domain|port|incoming VALUE");
         pw.println("      [--package PACKAGE] [--user USER] [--exact] [--port PORT] [--tcp|--udp]");
         pw.println("      [--on NETWORK]... | [--except NETWORK]...");
         pw.println("      Without --package the rule is for all of the user's apps. --exact");
         pw.println("      leaves a domain's subdomains out; --port limits an address or domain");
         pw.println("      rule to a port. A port, here or as a port rule's VALUE, is a number or");
         pw.println("      a range like 6881-6889; --tcp or --udp limits it to that protocol.");
+        pw.println("      An incoming rule covers connections others open to --port on this");
+        pw.println("      phone; its VALUE is who: any, local (the local network) or an address.");
         pw.println("      --on limits the rule to networks, --except to all others. NETWORK:");
         pw.println("      wifi, mobile, vpn, other, metered, roaming, or a specific network");
         pw.println("      from list-networks.");

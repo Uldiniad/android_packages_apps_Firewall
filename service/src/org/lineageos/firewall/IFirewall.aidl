@@ -32,6 +32,11 @@ interface IFirewall {
     const int RULE_ADDRESS = 0;
     const int RULE_DOMAIN = 1;
     const int RULE_PORT = 2;
+    /** Connections others make to the app, by the port on the phone they arrive at. */
+    const int RULE_INCOMING = 3;
+    /** Who an incoming rule's connections come from, apart from an address or range. */
+    const String INCOMING_FROM_ANYONE = "any";
+    const String INCOMING_FROM_LOCAL_NETWORK = "local";
     /** The protocols a port rule can be limited to; 0 is both. */
     const int PROTOCOL_TCP = 6;
     const int PROTOCOL_UDP = 17;

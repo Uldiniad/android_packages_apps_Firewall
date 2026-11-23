@@ -40,6 +40,9 @@ private const val KIND = "rt_kind"
 private val PROTOCOLS = listOf(0, IFirewall.PROTOCOL_TCP, IFirewall.PROTOCOL_UDP)
 private const val ALL_NETWORKS = 0
 private const val ALL_EXCEPT = 2
+private const val FROM_ANYONE = 0
+private const val FROM_LOCAL_NETWORK = 1
+private const val FROM_ADDRESS = 2
 
 /** Adds rules of one kind for all of a user's apps. */
 object AddRulesPageProvider : SettingsPageProvider {
@@ -101,9 +104,21 @@ private fun AddRulesPage(userId: Int, packageName: String?, kind: RuleKind?) {
     var invalid by rememberSaveable { mutableStateOf(false) }
     var limit by rememberSaveable { mutableIntStateOf(ALL_NETWORKS) }
     var networks by rememberSaveable { mutableStateOf(listOf<String>()) }
+    var incoming by rememberSaveable { mutableStateOf(false) }
+    var sender by rememberSaveable { mutableIntStateOf(FROM_ANYONE) }
+    var senderAddress by rememberSaveable { mutableStateOf("") }
+    var senderInvalid by rememberSaveable { mutableStateOf(false) }
     val shown = kind ?: chosenKind
     // Addresses and domains can name a port, and then a protocol.
     val namedPort = if (shown != RuleKind.PORT) port.trim() else ""
+    // Incoming rules take the lines as ports on the phone, and who connects from the page.
+    val incomingRules = shown == RuleKind.PORT && incoming
+    val senderValue =
+        when (sender) {
+            FROM_ANYONE -> IFirewall.INCOMING_FROM_ANYONE
+            FROM_LOCAL_NETWORK -> IFirewall.INCOMING_FROM_LOCAL_NETWORK
+            else -> senderAddress.trim()
+        }
     RegularScaffold(
         title = stringResource(kind?.add ?: R.string.add_rule),
         actions = {
@@ -116,8 +131,9 @@ private fun AddRulesPage(userId: Int, packageName: String?, kind: RuleKind?) {
                                 it.packageName = packageName
                                 it.userId = userId
                                 it.allow = allow
-                                it.kind = shown.kind
-                                it.value = value
+                                it.kind = if (incomingRules) IFirewall.RULE_INCOMING else shown.kind
+                                it.value = if (incomingRules) senderValue else value
+                                if (incomingRules) it.port = value
                                 it.subdomains = subdomains
                                 it.protocol = protocol
                                 if (namedPort.isNotEmpty()) it.port = namedPort
@@ -127,6 +143,8 @@ private fun AddRulesPage(userId: Int, packageName: String?, kind: RuleKind?) {
                         }
                     if (namedPort.isNotEmpty() && !isPort(namedPort)) {
                         portInvalid = true
+                    } else if (incomingRules && sender == FROM_ADDRESS && !isRange(senderValue)) {
+                        senderInvalid = true
                     } else {
                         scope.launch {
                             val rejected = Firewall.call { addRules(rules.toTypedArray()) }
@@ -197,6 +215,44 @@ private fun AddRulesPage(userId: Int, packageName: String?, kind: RuleKind?) {
                 portInvalid = false
             }
         }
+        if (shown == RuleKind.PORT) {
+            SettingsDropdownBox(
+                label = stringResource(R.string.direction_label),
+                options =
+                    listOf(R.string.direction_outgoing, R.string.direction_incoming).map {
+                        stringResource(it)
+                    },
+                selectedOptionIndex = if (incoming) 1 else 0,
+            ) {
+                incoming = it == 1
+            }
+        }
+        if (incomingRules) {
+            SettingsDropdownBox(
+                label = stringResource(R.string.sender_label),
+                options =
+                    listOf(R.string.sender_anyone, R.string.sender_local_network,
+                            R.string.sender_address)
+                        .map { stringResource(it) },
+                selectedOptionIndex = sender,
+            ) {
+                sender = it
+                senderInvalid = false
+            }
+            if (sender == FROM_ADDRESS) {
+                SettingsOutlinedTextField(
+                    value = senderAddress,
+                    label = stringResource(R.string.sender_address_label),
+                    errorMessage =
+                        if (senderInvalid) stringResource(R.string.sender_address_invalid)
+                        else null,
+                    placeholder = { Text(stringResource(R.string.sender_address_hint)) },
+                ) {
+                    senderAddress = it
+                    senderInvalid = false
+                }
+            }
+        }
         if (shown == RuleKind.PORT || namedPort.isNotEmpty()) {
             SettingsDropdownBox(
                 label = stringResource(R.string.protocol_label),
@@ -220,8 +276,18 @@ private fun AddRulesPage(userId: Int, packageName: String?, kind: RuleKind?) {
         }
         if (limit != ALL_NETWORKS) ChosenNetworks(userId, networks) { networks = it }
         if (shown == RuleKind.DOMAIN) Footer(stringResource(R.string.domain_addresses_footer))
+        if (incomingRules) Footer(stringResource(R.string.incoming_footer))
     }
 }
+
+/** Whether [text] is an IP address, or a range of them like 192.0.2.0/24. */
+private fun isRange(text: String) =
+    try {
+        Names.parsePrefix(text)
+        true
+    } catch (e: IllegalArgumentException) {
+        false
+    }
 
 /** Whether [text] is a port from 1 to 65535, or a range of them like 6881-6889. */
 private fun isPort(text: String): Boolean {

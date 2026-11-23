@@ -62,29 +62,39 @@ enum class RuleKind(
         R.string.ports_hint,
         R.string.ports_invalid,
         R.plurals.port_rule_count,
-    ),
+    );
+
+    /** Whether the kind's tab shows the rule: the ports tab shows incoming rules too. */
+    fun covers(rule: FirewallRule) =
+        rule.kind == kind || (this == PORT && rule.kind == IFirewall.RULE_INCOMING)
 }
 
 /** Sums up the rules for all apps by kind, like "3 domains and 2 IP addresses". */
 fun Context.allAppsRulesSummary(rules: List<FirewallRule>): String {
     val counts =
         RuleKind.entries.mapNotNull { kind ->
-            val count = rules.count { it.kind == kind.kind }
+            val count = rules.count { kind.covers(it) }
             if (count == 0) null else resources.getQuantityString(kind.count, count, count)
         }
     return if (counts.isEmpty()) getString(R.string.all_apps_rules_none) else formatList(counts)
 }
 
-fun Context.ruleTitle(rule: FirewallRule): String =
-    when {
-        rule.kind != IFirewall.RULE_PORT -> rule.value
-        '-' in rule.value -> getString(R.string.ports_title, rule.value)
-        else -> getString(R.string.port_title, rule.value)
-    }
+fun Context.ruleTitle(rule: FirewallRule): String {
+    // An incoming rule is titled by the port on the phone, its sender is in the summary.
+    val port =
+        when (rule.kind) {
+            IFirewall.RULE_PORT -> rule.value
+            IFirewall.RULE_INCOMING -> rule.port
+            else -> return rule.value
+        }
+    return getString(if ('-' in port) R.string.ports_title else R.string.port_title, port)
+}
 
 /** A rule's summary, with its port and the networks it is limited to by the names in [names]. */
 fun Context.ruleSummary(rule: FirewallRule, names: Map<String, String>): String {
-    val summary = withPort(rule, targetSummary(rule))
+    val summary =
+        if (rule.kind == IFirewall.RULE_INCOMING) incomingSummary(rule)
+        else withPort(rule, targetSummary(rule))
     val networks = rule.networks.orEmpty()
     if (networks.isEmpty()) return summary
     return getString(
@@ -107,6 +117,29 @@ private fun Context.targetSummary(rule: FirewallRule): String =
             else -> if (rule.allow) R.string.rule_allowed else R.string.rule_blocked
         }
     )
+
+/** An incoming rule's summary, with who connects, like "Blocked for incoming · from 192.0.2.4". */
+private fun Context.incomingSummary(rule: FirewallRule): String {
+    val action =
+        getString(
+            when (rule.protocol) {
+                IFirewall.PROTOCOL_TCP ->
+                    if (rule.allow) R.string.rule_incoming_allowed_tcp
+                    else R.string.rule_incoming_blocked_tcp
+                IFirewall.PROTOCOL_UDP ->
+                    if (rule.allow) R.string.rule_incoming_allowed_udp
+                    else R.string.rule_incoming_blocked_udp
+                else ->
+                    if (rule.allow) R.string.rule_incoming_allowed
+                    else R.string.rule_incoming_blocked
+            }
+        )
+    return when (rule.value) {
+        IFirewall.INCOMING_FROM_ANYONE -> action
+        IFirewall.INCOMING_FROM_LOCAL_NETWORK -> getString(R.string.rule_from_local_network, action)
+        else -> getString(R.string.rule_from_address, action, rule.value)
+    }
+}
 
 /** The summary with the port an address or domain rule names, like "Blocked · TCP port 443". */
 private fun Context.withPort(rule: FirewallRule, summary: String): String {

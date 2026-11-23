@@ -119,7 +119,7 @@ class FirewallAppTest {
         }
         firewall.removeRules(
             (firewall.getRules(userId, testPackage) + firewall.getRules(userId, null))
-                .filter { it.value in TEST_VALUES }
+                .filter { it.value in TEST_VALUES || it.port in TEST_VALUES }
                 .toTypedArray()
         )
         for (list in firewall.getLists(userId).filter { it.title == LIST_FILE }) {
@@ -748,6 +748,28 @@ class FirewallAppTest {
         }
 
     @Test
+    fun incomingRulesShowInThePortsTabWithWhoConnects() =
+        onPage("AllAppsRules/$userId") {
+            find(text("kind_ports")).click()
+            find(text("add_ports")).click()
+            valuesField("kind_ports").text = SERVED_PORT
+            choose("direction_outgoing", "direction_incoming")
+            choose("sender_anyone", "sender_local_network")
+            scrollTo(text("protocol_both")).click()
+            find(text("protocol_tcp")).click()
+            find(text("add")).click()
+            waitUntil {
+                firewall.getRules(userId, null).any {
+                    it.kind == IFirewall.RULE_INCOMING && it.port == SERVED_PORT &&
+                        it.value == IFirewall.INCOMING_FROM_LOCAL_NETWORK &&
+                        it.protocol == IFirewall.PROTOCOL_TCP
+                }
+            }
+            find(text("port_title", SERVED_PORT))
+            find(text("rule_from_local_network", text("rule_incoming_blocked_tcp")))
+        }
+
+    @Test
     fun portRangesShowAsOneRule() {
         firewall.addRules(arrayOf(rule(null, IFirewall.RULE_PORT, PORT_RANGE)))
         onPage("AllAppsRules/$userId") {
@@ -1060,7 +1082,8 @@ class FirewallAppTest {
         const val PORT = "8443"
         const val PORT_RANGE = "6881-6889"
         const val DNS_PORT = "53"
-        val TEST_VALUES = setOf(DOMAIN, OTHER_DOMAIN, ADDRESS, PORT, PORT_RANGE)
+        const val SERVED_PORT = "8080"
+        val TEST_VALUES = setOf(DOMAIN, OTHER_DOMAIN, ADDRESS, PORT, PORT_RANGE, SERVED_PORT)
         const val EDIT_TEXT = "android.widget.EditText"
         const val TEXT_VIEW = "android.widget.TextView"
         const val ACTION_APP_BLOCKED = "org.lineageos.firewall.action.APP_BLOCKED"

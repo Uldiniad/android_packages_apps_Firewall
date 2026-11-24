@@ -56,7 +56,8 @@ fun Context.formatList(items: List<CharSequence>): String =
 
 /** How the app list sums up an app's rules. */
 fun Context.rulesSummary(rule: AppRule?, usesInternet: Boolean): String =
-    withRuleCount(rule, networkSummary(rule, usesInternet))
+    rule?.groupName?.let { getString(R.string.follows_group, it) }
+        ?: withRuleCount(rule, networkSummary(rule, usesInternet))
 
 private fun Context.networkSummary(rule: AppRule?, usesInternet: Boolean): String {
     val rules = rule?.rules ?: 0

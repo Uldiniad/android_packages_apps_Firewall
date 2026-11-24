@@ -68,16 +68,8 @@ object AppRulesPageProvider : SettingsPageProvider {
 
 @Composable
 private fun AppRulesPage(packageName: String, userId: Int) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val appRules by remember(userId) { Firewall.appRules(userId) }.collectAsStateWithLifecycle(null)
     val rule = appRules?.get(packageName)
-    // Null while loading; an app without rules is allowed everywhere.
-    val rules = appRules?.let { rule?.rules ?: 0 }
-    val change: (Int) -> Unit = { newRules ->
-        scope.launch { Firewall.call { setAppRules(packageName, userId, newRules) } }
-        BlockedAppNotification.cancel(context, packageName)
-    }
     AppInfoPage(
         title = stringResource(R.string.app_rules_title),
         packageName = packageName,
@@ -85,41 +77,58 @@ private fun AppRulesPage(packageName: String, userId: Int) {
         footerContent = { AppRulesFooter(packageName, userId, rule) },
         packageManagers = PackageManagers,
     ) {
-        val allowed = rules != null && rules and IFirewall.BLOCK_ALL == 0
-        MainSwitchPreference(
-            object : SwitchPreferenceModel {
-                override val title = stringResource(R.string.allow_network_access)
-                override val checked = { rules?.let { it and IFirewall.BLOCK_ALL == 0 } }
-                override val onCheckedChange: (Boolean) -> Unit = {
-                    change((rules ?: 0).with(IFirewall.BLOCK_ALL, !it))
-                }
-            }
-        )
-        ScheduleEntries(packageName, userId, rule)
-        Category(title = stringResource(R.string.networks_title)) {
-            for (network in Network.entries) {
-                SwitchPreference(
-                    object : SwitchPreferenceModel {
-                        override val title = stringResource(network.title)
-                        override val summary = {
-                            network.summary?.let { context.getString(it) } ?: ""
-                        }
-                        override val checked = { rules?.let { it and network.rule == 0 } }
-                        override val changeable = { allowed }
-                        override val onCheckedChange: (Boolean) -> Unit = {
-                            change((rules ?: 0).with(network.rule, !it))
-                        }
-                    }
-                )
-            }
-            SpecificNetworksEntry(packageName, userId, rule, allowed)
+        if (rule?.group != null) {
+            GroupMembership(packageName, userId, rule)
+        } else {
+            RulesControls(packageName, userId, appRules)
         }
-        TargetRules(packageName, userId)
         Category {
             LocalNetworkPreference(userId)
             DataUsagePreference(userId)
         }
     }
+}
+
+/** An app's switches, schedule, networks and rules, or a group's for its apps. */
+@Composable
+fun RulesControls(packageName: String, userId: Int, appRules: Map<String, AppRule>?) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val rule = appRules?.get(packageName)
+    // Null while loading; an app without rules is allowed everywhere.
+    val rules = appRules?.let { rule?.rules ?: 0 }
+    val change: (Int) -> Unit = { newRules ->
+        scope.launch { Firewall.call { setAppRules(packageName, userId, newRules) } }
+        BlockedAppNotification.cancel(context, packageName)
+    }
+    val allowed = rules != null && rules and IFirewall.BLOCK_ALL == 0
+    MainSwitchPreference(
+        object : SwitchPreferenceModel {
+            override val title = stringResource(R.string.allow_network_access)
+            override val checked = { rules?.let { it and IFirewall.BLOCK_ALL == 0 } }
+            override val onCheckedChange: (Boolean) -> Unit = {
+                change((rules ?: 0).with(IFirewall.BLOCK_ALL, !it))
+            }
+        }
+    )
+    ScheduleEntries(packageName, userId, rule)
+    Category(title = stringResource(R.string.networks_title)) {
+        for (network in Network.entries) {
+            SwitchPreference(
+                object : SwitchPreferenceModel {
+                    override val title = stringResource(network.title)
+                    override val summary = { network.summary?.let { context.getString(it) } ?: "" }
+                    override val checked = { rules?.let { it and network.rule == 0 } }
+                    override val changeable = { allowed }
+                    override val onCheckedChange: (Boolean) -> Unit = {
+                        change((rules ?: 0).with(network.rule, !it))
+                    }
+                }
+            )
+        }
+        SpecificNetworksEntry(packageName, userId, rule, allowed)
+    }
+    TargetRules(packageName, userId)
 }
 
 /** Android's own page for the app's background data and Data Saver exemption. */
@@ -155,7 +164,8 @@ private fun AppRulesFooter(packageName: String, userId: Int, rule: AppRule?) {
             add(context.getString(R.string.app_rules_footer_shared, context.formatList(shared)))
         }
         add(context.getString(R.string.app_rules_footer))
-        add(context.rulesFooter())
+        // An app in a group has no rules of its own.
+        if (rule?.group == null) add(context.rulesFooter())
     }
     SettingsBody(paragraphs.joinToString("\n\n"))
 }

@@ -16,6 +16,7 @@ import java.io.PrintWriter;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 
 /**
  * A part of the firewall with its own rules, which the service consults at each point where it
@@ -110,6 +111,33 @@ abstract class Feature {
 
     /** Adds the apps this feature has state for, which have rules even without switches. */
     void addAppsWithStateLocked(Set<Pair<String, Integer>> apps) {}
+
+    /**
+     * When the app is one of this feature's groups, the uids of the apps in it, which get its
+     * rules instead of their own; else null.
+     */
+    int[] memberUidsLocked(Pair<String, Integer> app) {
+        return null;
+    }
+
+    /** The group whose rules the app follows instead of its own; null when it's in none. */
+    Pair<String, Integer> groupOfLocked(Pair<String, Integer> app) {
+        return null;
+    }
+
+    /** Gives an app or a group a copy of what the feature keeps for another, instead of its own. */
+    void copyAppLocked(Pair<String, Integer> from, Pair<String, Integer> to) {}
+
+    /** Copies one app's or group's value in the map to another, or drops the other's for none. */
+    static <T> void copyEntry(Map<Pair<String, Integer>, T> map, Pair<String, Integer> from,
+            Pair<String, Integer> to, UnaryOperator<T> copy) {
+        T value = map.get(from);
+        if (value == null) {
+            map.remove(to);
+        } else {
+            map.put(to, copy.apply(value));
+        }
+    }
 
     /** The app's switches at the time, as the feature changes them; rules by default. */
     int rulesNowLocked(Pair<String, Integer> app, int rules, long now) {

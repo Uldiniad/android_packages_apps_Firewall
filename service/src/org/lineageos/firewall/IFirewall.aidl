@@ -6,6 +6,7 @@
 package org.lineageos.firewall;
 
 import org.lineageos.firewall.AppRule;
+import org.lineageos.firewall.FirewallGroup;
 import org.lineageos.firewall.FirewallList;
 import org.lineageos.firewall.FirewallRule;
 import org.lineageos.firewall.IFirewallListener;
@@ -49,6 +50,9 @@ interface IFirewall {
     const int LIST_ERROR_STORAGE = 5;
     const int LIST_ERROR_MEMORY = 6;
     const int LIST_ERROR_FULL = 7;
+
+    /** A group goes by this and its id where calls take an app's packageName, for its rules. */
+    const String GROUP_PREFIX = "group:";
 
     void setAppRules(String packageName, int userId, int rules);
     /** Blocks the app, or allows it, until the time in milliseconds since the epoch; 0 ends it. */
@@ -109,4 +113,17 @@ interface IFirewall {
     void setEnabled(boolean enabled);
     /** Whether the firewall is on; while it's off, no rules apply, though they can change. */
     boolean isEnabled();
+
+    /** The user's groups of apps, which follow their group's rules instead of their own. */
+    FirewallGroup[] getGroups(int userId);
+    /** Adds a group with no apps and no rules, so it allows everything; its id. */
+    String addGroup(int userId, String name);
+    void renameGroup(int userId, String id, String name);
+    /** Removes the group; its apps keep a copy of its rules as their own. */
+    void removeGroup(int userId, String id);
+    /**
+     * Puts the app, with those sharing its uid, in the group, whose rules replace their own; with
+     * a null id takes them out, leaving them a copy of the group's rules as their own.
+     */
+    void setAppGroup(String packageName, int userId, @nullable String id);
 }

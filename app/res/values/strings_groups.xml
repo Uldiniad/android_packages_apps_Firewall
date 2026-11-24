@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Entry for one user or profile, and the title of its page: groups of apps that follow one set of rules. -->
+    <string name="groups_title">Groups</string>
+    <!-- Summary of the entry when the user has no groups. -->
+    <string name="groups_none">None</string>
+    <plurals name="group_count">
+        <item quantity="one"><xliff:g id="count" example="1">%d</xliff:g> group</item>
+        <item quantity="other"><xliff:g id="count" example="2">%d</xliff:g> groups</item>
+    </plurals>
+    <string name="add_group">Add group</string>
+    <string name="no_groups">No groups</string>
+    <string name="groups_footer">Apps in a group follow the group\'s rules instead of their own. An app can be in one group.</string>
+    <!-- Label of the text field in the dialogs that add and rename a group. -->
+    <string name="group_name">Name</string>
+    <!-- Heading of a group's apps on its page. -->
+    <string name="group_apps">Apps</string>
+    <string name="no_group_apps">No apps</string>
+    <plurals name="group_app_count">
+        <item quantity="one"><xliff:g id="count" example="1">%d</xliff:g> app</item>
+        <item quantity="other"><xliff:g id="count" example="3">%d</xliff:g> apps</item>
+    </plurals>
+    <string name="add_apps">Add apps</string>
+    <!-- Asked before an app joins a group, as its own rules give way to the group's. -->
+    <string name="add_to_group_title">Add <xliff:g id="app" example="Chrome">%1$s</xliff:g> to <xliff:g id="group" example="Work">%2$s</xliff:g>?</string>
+    <string name="add_to_group_text">It follows <xliff:g id="group" example="Work">%1$s</xliff:g>\'s rules instead of its own.</string>
+    <string name="add_to_group_text_rules">Its own rules are deleted, and it follows <xliff:g id="group" example="Work">%1$s</xliff:g>\'s rules instead.</string>
+    <string name="rename_group">Rename</string>
+    <string name="rename_group_title">Rename group</string>
+    <string name="delete_group">Delete group</string>
+    <string name="delete_group_title">Delete <xliff:g id="group" example="Work">%1$s</xliff:g>?</string>
+    <string name="delete_group_text">Its apps keep a copy of its rules as their own.</string>
+    <string name="delete">Delete</string>
+    <string name="group_footer">Allow rules win over block rules, and this group\'s rules over the rules for all apps.</string>
+    <!-- A group's counterparts of an app's texts on the pages they share. -->
+    <string name="no_group_rules">No rules for this group</string>
+    <string name="specific_networks_footer_group">A choice for a network wins over the group\'s other switches for it, like Wi\u2011Fi or metered networks.</string>
+    <!-- On the page and in the list summary of an app in a group, which links to the group's page. -->
+    <string name="follows_group">Follows <xliff:g id="group" example="Work">%1$s</xliff:g></string>
+    <string name="follows_group_summary">This app follows its group\'s rules instead of its own</string>
+    <string name="leave_group">Leave group</string>
+    <string name="leave_group_summary">Keep a copy of the group\'s rules as this app\'s own</string>
+</resources>

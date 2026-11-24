@@ -240,7 +240,7 @@ final class BlockLists extends Feature {
         mDir.mkdirs();
         userLists.keySet().retainAll(users);
         appLists.keySet().removeIf(app ->
-                !users.contains(app.second) || mService.knownUid(app) < 0);
+                !users.contains(app.second) || !mService.knownLocked(app));
         dropUnusedListsLocked();
         for (BlockList list : lists.values()) {
             if (list.generation == 0) continue;
@@ -390,11 +390,11 @@ final class BlockLists extends Feature {
         Map<Integer, Long> scopes = new HashMap<>();
         Set<Integer> users = new HashSet<>(userLists.keySet());
         appLists.forEach((app, ids) -> {
-            int uid = mService.knownUid(app);
-            if (uid < 0) return;
-            users.add(app.second);
-            for (int each : FirewallService.withSdkSandbox(uid)) {
-                scopes.merge(each, slotsOf(ids), (a, b) -> a | b);
+            for (int uid : mService.uidsLocked(app)) {
+                users.add(app.second);
+                for (int each : FirewallService.withSdkSandbox(uid)) {
+                    scopes.merge(each, slotsOf(ids), (a, b) -> a | b);
+                }
             }
         });
         for (int user : users) {
@@ -450,6 +450,11 @@ final class BlockLists extends Feature {
     @Override
     void addAppsWithStateLocked(Set<Pair<String, Integer>> apps) {
         apps.addAll(appLists.keySet());
+    }
+
+    @Override
+    void copyAppLocked(Pair<String, Integer> from, Pair<String, Integer> to) {
+        copyEntry(appLists, from, to, TreeSet::new);
     }
 
     @Override

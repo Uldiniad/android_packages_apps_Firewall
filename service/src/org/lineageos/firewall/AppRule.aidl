@@ -23,6 +23,9 @@ parcelable AppRule {
     int scheduleDays;
     int scheduleStart;
     int scheduleEnd;
-    /** Whether the app is blocked now, by its switch, a pause or its schedule. */
+    /** Whether the app is blocked now, by its switch, a pause or its schedule, or its group's. */
     boolean blockedNow;
+    /** The group whose rules the app follows instead of its own, by id and name; null for none. */
+    @nullable String group;
+    @nullable String groupName;
 }

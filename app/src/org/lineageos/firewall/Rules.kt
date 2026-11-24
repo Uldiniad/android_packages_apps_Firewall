@@ -188,7 +188,14 @@ fun TargetRules(packageName: String, userId: Int) {
         if (rules != null && shown.isEmpty() && lists?.isEmpty() == true) {
             Preference(
                 object : PreferenceModel {
-                    override val title = stringResource(R.string.no_app_rules)
+                    override val title =
+                        stringResource(
+                            if (packageName.startsWith(IFirewall.GROUP_PREFIX)) {
+                                R.string.no_group_rules
+                            } else {
+                                R.string.no_app_rules
+                            }
+                        )
                 }
             )
         }

@@ -582,6 +582,50 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     }
 
     @Test
+    public void anAppInAGroupFollowsTheGroupsRules() throws Exception {
+        setRules("wifi", 0);
+        String id = shell("cmd firewall add-group Hostside").trim();
+        try {
+            shell("cmd firewall set-group " + PACKAGE + " " + id);
+            // Its own block went, as a new group allows everything.
+            assertTrue(run("HostChecks", "allowed", 0));
+            shell("cmd firewall set-app group:" + id + " all");
+            assertTrue(run("HostChecks", "blocked", 0));
+            shell("cmd firewall set-group " + PACKAGE + " none");
+            // It keeps a copy of the group's rules.
+            assertEquals("all", getRules(0));
+            assertTrue(run("HostChecks", "blocked", 0));
+        } finally {
+            shell("cmd firewall set-group " + PACKAGE + " none");
+            shell("cmd firewall remove-group " + id);
+            setRules("none", 0);
+        }
+    }
+
+    @Test
+    public void aGroupLosesAnUninstalledAppAndKeepsItsRules() throws Exception {
+        // Uninstalling for one user keeps the APK for user 0, as for the app's own rules.
+        int user = getDevice().createUser("fwgroups");
+        try {
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            String id = shell("cmd firewall add-group Hostside --user " + user).trim();
+            shell("cmd firewall set-app group:" + id + " all --user " + user);
+            shell("cmd firewall set-group " + PACKAGE + " " + id + " --user " + user);
+            assertEquals(1, rulesInMap(uidOf(PACKAGE, user)) & 1);
+            shell("pm uninstall --user " + user + " " + PACKAGE);
+            waitUntil("The app stayed in its group", 30_000, () -> !shell(
+                    "cmd firewall list-groups --user " + user).contains(PACKAGE));
+            assertTrue(shell("cmd firewall list-groups --user " + user)
+                    .startsWith(id + " Hostside"));
+            assertEquals("all", getRules("group:" + id, user));
+            shell("pm install-existing --user " + user + " " + PACKAGE);
+            assertEquals("none", getRules(user));
+        } finally {
+            shell("pm remove-user --wait " + user);
+        }
+    }
+
+    @Test
     public void profilesKeepTheirCopyWithoutALauncherIcon() throws Exception {
         String launchers = "cmd package query-activities --brief -a android.intent.action.MAIN"
                 + " -c android.intent.category.LAUNCHER --user ";

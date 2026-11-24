@@ -26,7 +26,9 @@ import com.android.settingslib.spa.widget.preference.ListPreferenceModel
 import com.android.settingslib.spa.widget.preference.ListPreferenceOption
 import com.android.settingslib.spa.widget.preference.Preference
 import com.android.settingslib.spa.widget.preference.PreferenceModel
+import com.android.settingslib.spa.widget.scaffold.RegularScaffold
 import com.android.settingslib.spa.widget.ui.Category
+import com.android.settingslib.spa.widget.ui.Footer
 import com.android.settingslib.spa.widget.ui.SettingsBody
 import com.android.settingslib.spaprivileged.model.app.PackageManagers
 import com.android.settingslib.spaprivileged.template.app.AppInfoPage
@@ -68,13 +70,7 @@ private fun SpecificNetworksPage(packageName: String, userId: Int) {
         rule?.allowedNetworks?.forEach { put(it, IFirewall.NETWORK_ALLOW) }
         rule?.blockedNetworks?.forEach { put(it, IFirewall.NETWORK_BLOCK) }
     }
-    AppInfoPage(
-        title = stringResource(R.string.specific_networks),
-        packageName = packageName,
-        userId = userId,
-        footerContent = { SettingsBody(stringResource(R.string.specific_networks_footer)) },
-        packageManagers = PackageManagers,
-    ) {
+    val content: @Composable () -> Unit = {
         for (kind in SpecificKind.entries) {
             Category(title = stringResource(kind.category)) {
                 // The networks the device is on come first.
@@ -114,6 +110,23 @@ private fun SpecificNetworksPage(packageName: String, userId: Int) {
                     }
                 }
             }
+        }
+    }
+    if (packageName.startsWith(IFirewall.GROUP_PREFIX)) {
+        // A group has no app to head the page.
+        RegularScaffold(title = stringResource(R.string.specific_networks)) {
+            content()
+            Footer(stringResource(R.string.specific_networks_footer_group))
+        }
+    } else {
+        AppInfoPage(
+            title = stringResource(R.string.specific_networks),
+            packageName = packageName,
+            userId = userId,
+            footerContent = { SettingsBody(stringResource(R.string.specific_networks_footer)) },
+            packageManagers = PackageManagers,
+        ) {
+            content()
         }
     }
 }

@@ -107,7 +107,8 @@ public final class FirewallService extends SystemService {
                 new LocalNetwork(this),
                 new RefusalCounts(this),
                 new MainSwitch(this),
-                new BlockLists(this, storeDir));
+                new BlockLists(this, storeDir),
+                new Groups(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
 
@@ -177,7 +178,7 @@ public final class FirewallService extends SystemService {
                     .getUserHandles(false)) {
                 users.add(user.getIdentifier());
             }
-            mStore.apps.keySet().removeIf(app -> !users.contains(app.second) || knownUid(app) < 0);
+            mStore.apps.keySet().removeIf(app -> !users.contains(app.second) || !knownLocked(app));
             for (Feature feature : mFeatures) feature.onLoadedLocked(users);
             for (Feature feature : mFeatures) feature.onStartLocked(users, firstStart);
             // Saved before NPMS reads netpolicy.xml and drops Lineage's bits.
@@ -281,7 +282,7 @@ public final class FirewallService extends SystemService {
                 // Dropped like NPMS drops the uid's policy; not sent when data is kept.
                 int userId = UserHandle.getUserId(uid);
                 Predicate<Pair<String, Integer>> gone = app -> {
-                    if (app.second != userId) return false;
+                    if (app.second != userId || isGroupLocked(app)) return false;
                     int known = knownUid(app);
                     return known == uid || known < 0;
                 };
@@ -362,6 +363,50 @@ public final class FirewallService extends SystemService {
         }
     }
 
+    /** The uids that get the app's rules: a group's apps', the app's own, or none in a group. */
+    int[] uidsLocked(Pair<String, Integer> app) {
+        for (Feature feature : mFeatures) {
+            int[] members = feature.memberUidsLocked(app);
+            if (members != null) return members;
+        }
+        int uid = groupOfLocked(app) == null ? knownUid(app) : -1;
+        return uid < 0 ? new int[0] : new int[] {uid};
+    }
+
+    /** Whether the app is a group, whose apps get its rules. */
+    boolean isGroupLocked(Pair<String, Integer> app) {
+        for (Feature feature : mFeatures) {
+            if (feature.memberUidsLocked(app) != null) return true;
+        }
+        return false;
+    }
+
+    /** Whether the app's rules are still wanted: it's a group, or a user has the app. */
+    boolean knownLocked(Pair<String, Integer> app) {
+        return isGroupLocked(app) || knownUid(app) >= 0;
+    }
+
+    /** The group whose rules the app follows instead of its own; null when it's in none. */
+    Pair<String, Integer> groupOfLocked(Pair<String, Integer> app) {
+        for (Feature feature : mFeatures) {
+            Pair<String, Integer> group = feature.groupOfLocked(app);
+            if (group != null) return group;
+        }
+        return null;
+    }
+
+    /** Gives an app or a group a copy of another's switches and rules, instead of its own. */
+    void copyAppLocked(Pair<String, Integer> from, Pair<String, Integer> to) {
+        Feature.copyEntry(mStore.apps, from, to, rules -> rules);
+        for (Feature feature : mFeatures) feature.copyAppLocked(from, to);
+    }
+
+    /** Drops the app's own switches and rules, as when it's gone. */
+    void forgetAppLocked(Pair<String, Integer> app) {
+        mStore.apps.remove(app);
+        forgetAppsLocked(app::equals);
+    }
+
     boolean forgetUserLocked(int userId) {
         boolean changed = mStore.apps.keySet().removeIf(app -> app.second == userId);
         for (Feature feature : mFeatures) changed |= feature.forgetUserLocked(userId);
@@ -419,11 +464,11 @@ public final class FirewallService extends SystemService {
         Map<Integer, Integer> wanted = new HashMap<>();
         long now = mClock.millis();
         for (Map.Entry<Pair<String, Integer>, Integer> app : mStore.apps.entrySet()) {
-            // Also while hidden, archived, or on adoptable storage that is not mounted yet.
-            int uid = knownUid(app.getKey());
-            if (uid < 0) continue;
             int rules = rulesNowLocked(app.getKey(), app.getValue(), now);
-            for (int each : withSdkSandbox(uid)) wanted.merge(each, rules, (a, b) -> a | b);
+            // Also while hidden, archived, or on adoptable storage that is not mounted yet.
+            for (int uid : uidsLocked(app.getKey())) {
+                for (int each : withSdkSandbox(uid)) wanted.merge(each, rules, (a, b) -> a | b);
+            }
         }
         for (Feature feature : mFeatures) feature.writeAppsLocked(wanted);
         for (int uid : mUidRules.keySet()) {
@@ -577,8 +622,24 @@ public final class FirewallService extends SystemService {
         });
     }
 
-    /** The installed app and those sharing its uid, which the maps give the same rules. */
+    /**
+     * What a change to the app's rules changes: a group, or the installed app and those sharing
+     * its uid, which the maps give the same rules, unless they follow a group's rules.
+     */
     List<Pair<String, Integer>> sharingUidLocked(String packageName, int userId) {
+        Pair<String, Integer> app = Pair.create(packageName, userId);
+        if (isGroupLocked(app)) return List.of(app);
+        List<Pair<String, Integer>> apps = installedSharingUidLocked(packageName, userId);
+        for (Pair<String, Integer> each : apps) {
+            if (groupOfLocked(each) != null) {
+                throw new IllegalArgumentException(packageName + " follows its group's rules");
+            }
+        }
+        return apps;
+    }
+
+    /** The installed app and those sharing its uid, which the maps give the same rules. */
+    List<Pair<String, Integer>> installedSharingUidLocked(String packageName, int userId) {
         int uid = packageUid(Pair.create(packageName, userId), PACKAGE_FLAGS);
         if (uid < 0) {
             throw new IllegalArgumentException(packageName + " is not installed for user "
@@ -634,8 +695,10 @@ public final class FirewallService extends SystemService {
             rule.packageName = app.first;
             rule.rules = mStore.apps.getOrDefault(app, 0);
             for (Feature feature : mFeatures) feature.fillAppRuleLocked(app, rule);
-            rule.blockedNow = (rulesNowLocked(app, rule.rules, mClock.millis())
-                    & FirewallMaps.BLOCK_ALL) != 0;
+            Pair<String, Integer> group = groupOfLocked(app);
+            Pair<String, Integer> followed = group != null ? group : app;
+            rule.blockedNow = (rulesNowLocked(followed, mStore.apps.getOrDefault(followed, 0),
+                    mClock.millis()) & FirewallMaps.BLOCK_ALL) != 0;
             rules.add(rule);
         }
         return rules.toArray(new AppRule[0]);
@@ -875,6 +938,36 @@ public final class FirewallService extends SystemService {
             enforcePermission();
             runAsSystem(() ->
                     feature(BlockLists.class).setListCheckedInternal(id, error, errorDetail));
+        }
+
+        @Override
+        public FirewallGroup[] getGroups(int userId) {
+            enforceUser(userId);
+            return feature(Groups.class).getGroupsInternal(userId);
+        }
+
+        @Override
+        public String addGroup(int userId, String name) {
+            enforceUser(userId);
+            return feature(Groups.class).addGroupInternal(userId, name);
+        }
+
+        @Override
+        public void renameGroup(int userId, String id, String name) {
+            enforceUser(userId);
+            feature(Groups.class).renameGroupInternal(userId, id, name);
+        }
+
+        @Override
+        public void removeGroup(int userId, String id) {
+            enforceUser(userId);
+            runAsSystem(() -> feature(Groups.class).removeGroupInternal(userId, id));
+        }
+
+        @Override
+        public void setAppGroup(String packageName, int userId, String id) {
+            enforceUser(userId);
+            runAsSystem(() -> feature(Groups.class).setAppGroupInternal(packageName, userId, id));
         }
 
         @Override

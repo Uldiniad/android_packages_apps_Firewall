@@ -111,7 +111,7 @@ object BlockedAppNotification {
         try {
             Firewall.service.setAppRules(packageName, context.userId, rules)
         } catch (e: IllegalArgumentException) {
-            // Uninstalled since; its rules went with it.
+            // Uninstalled since, its rules gone with it, or in a group, which holds them.
         }
         cancel(context, packageName)
     }

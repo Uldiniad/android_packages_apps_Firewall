@@ -146,7 +146,7 @@ final class SpecificNetworks extends Feature implements NetworkTracker.BitsSourc
     void onLoadedLocked(Set<Integer> users) {
         appNetworks.values().removeIf(Map::isEmpty);
         appNetworks.keySet().removeIf(app ->
-                !users.contains(app.second) || mService.knownUid(app) < 0);
+                !users.contains(app.second) || !mService.knownLocked(app));
     }
 
     @Override
@@ -167,6 +167,11 @@ final class SpecificNetworks extends Feature implements NetworkTracker.BitsSourc
     @Override
     void addAppsWithStateLocked(Set<Pair<String, Integer>> apps) {
         apps.addAll(appNetworks.keySet());
+    }
+
+    @Override
+    void copyAppLocked(Pair<String, Integer> from, Pair<String, Integer> to) {
+        copyEntry(appNetworks, from, to, TreeMap::new);
     }
 
     /** The specific networks that choices and every feature's rules name, of one user or all. */
@@ -219,8 +224,6 @@ final class SpecificNetworks extends Feature implements NetworkTracker.BitsSourc
     void writeAppsLocked(Map<Integer, Integer> wanted) {
         Map<Integer, List<Integer>> named = new HashMap<>();
         for (Map.Entry<Pair<String, Integer>, Map<String, Boolean>> app : appNetworks.entrySet()) {
-            int uid = mService.knownUid(app.getKey());
-            if (uid < 0) continue;
             int block = 0;
             int allow = 0;
             for (Map.Entry<String, Boolean> choice : app.getValue().entrySet()) {
@@ -233,10 +236,12 @@ final class SpecificNetworks extends Feature implements NetworkTracker.BitsSourc
                 }
             }
             if (block == 0 && allow == 0) continue;
-            for (int each : FirewallService.withSdkSandbox(uid)) {
-                List<Integer> known = named.getOrDefault(each, List.of(0, 0));
-                named.put(each, List.of(known.get(0) | block, known.get(1) | allow));
-                wanted.merge(each, FirewallMaps.NAMED_NETWORKS, (a, b) -> a | b);
+            for (int uid : mService.uidsLocked(app.getKey())) {
+                for (int each : FirewallService.withSdkSandbox(uid)) {
+                    List<Integer> known = named.getOrDefault(each, List.of(0, 0));
+                    named.put(each, List.of(known.get(0) | block, known.get(1) | allow));
+                    wanted.merge(each, FirewallMaps.NAMED_NETWORKS, (a, b) -> a | b);
+                }
             }
         }
         for (int uid : mNamedWritten.keySet()) {

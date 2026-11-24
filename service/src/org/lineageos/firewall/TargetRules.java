@@ -148,7 +148,7 @@ final class TargetRules extends Feature {
     void onLoadedLocked(Set<Integer> users) {
         userTargets.keySet().retainAll(users);
         appTargets.keySet().removeIf(app ->
-                !users.contains(app.second) || mService.knownUid(app) < 0);
+                !users.contains(app.second) || !mService.knownLocked(app));
     }
 
     @Override
@@ -179,6 +179,11 @@ final class TargetRules extends Feature {
     }
 
     @Override
+    void copyAppLocked(Pair<String, Integer> from, Pair<String, Integer> to) {
+        copyEntry(appTargets, from, to, TreeSet::new);
+    }
+
+    @Override
     boolean letsThroughLocked(int rules) {
         // The OEM deny chain would also block what the app's allow rules let through.
         return (rules & FirewallMaps.SCOPE_ALLOWS) != 0;
@@ -202,8 +207,9 @@ final class TargetRules extends Feature {
         Map<Integer, Set<TargetRule>> targets = new HashMap<>();
         for (Map.Entry<Pair<String, Integer>, Set<TargetRule>> app :
                 appTargets.entrySet()) {
-            int uid = mService.knownUid(app.getKey());
-            if (uid >= 0) targets.computeIfAbsent(uid, u -> new HashSet<>()).addAll(app.getValue());
+            for (int uid : mService.uidsLocked(app.getKey())) {
+                targets.computeIfAbsent(uid, u -> new HashSet<>()).addAll(app.getValue());
+            }
         }
         Map<Integer, ScopeEntries> entries = new HashMap<>();
         targets.forEach((uid, rules) -> {

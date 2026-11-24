@@ -59,7 +59,7 @@ data class FirewallAppRecord(
     val usesInternet: Boolean,
 ) : AppRecord
 
-private class FirewallAppListModel(private val context: Context) : AppListModel<FirewallAppRecord> {
+open class FirewallAppListModel(private val context: Context) : AppListModel<FirewallAppRecord> {
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun transform(userIdFlow: Flow<Int>, appListFlow: Flow<List<ApplicationInfo>>) =
         appListFlow
@@ -114,6 +114,7 @@ private fun UserSettings(userId: Int) {
     Category {
         NewAppsPreferences(userId)
         AllAppsRulesEntry(userId)
+        GroupsEntry(userId)
         ExportImportEntry(userId)
     }
 }

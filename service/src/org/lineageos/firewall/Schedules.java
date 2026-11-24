@@ -166,6 +166,12 @@ final class Schedules extends Feature {
                 | schedules.keySet().removeIf(app -> app.second == userId);
     }
 
+    @Override
+    void copyAppLocked(Pair<String, Integer> from, Pair<String, Integer> to) {
+        copyEntry(pauses, from, to, pause -> pause);
+        copyEntry(schedules, from, to, schedule -> schedule);
+    }
+
     /** The app's rules at the time: a pause's while it lasts, else its own and its schedule's. */
     @Override
     int rulesNowLocked(Pair<String, Integer> app, int rules, long now) {

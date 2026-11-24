@@ -162,7 +162,8 @@ final class BackupRestore extends Feature {
             }
             for (FirewallBackup.App rule : backup.apps) {
                 Pair<String, Integer> app = Pair.create(rule.packageName(), userId);
-                if (mService.packageUid(app, FirewallService.PACKAGE_FLAGS) < 0) {
+                if (!mService.isGroupLocked(app)
+                        && mService.packageUid(app, FirewallService.PACKAGE_FLAGS) < 0) {
                     pending.put(app, rule);
                 } else {
                     applyRestoredLocked(app, rule);

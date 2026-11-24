@@ -107,6 +107,10 @@ class FirewallAppTest {
     @After
     fun tearDown() {
         device.pressHome()
+        // First, as an app in a group has no rules of its own to reset.
+        for (group in firewall.getGroups(userId).filter { it.name in TEST_GROUPS }) {
+            firewall.removeGroup(userId, group.id)
+        }
         firewall.setAppRules(testPackage, userId, 0)
         firewall.setPause(testPackage, userId, false, 0)
         firewall.setSchedule(testPackage, userId, 0, 0, 0)
@@ -666,6 +670,75 @@ class FirewallAppTest {
     }
 
     @Test
+    fun aGroupIsAddedByNameAndOpensOnItsPage() =
+        onPage("AppList") {
+            scrollTo(text("groups_title")).click()
+            find(text("no_groups"))
+            find(text("add_group")).click()
+            editText().text = GROUP
+            find(text("add")).click()
+            waitUntil { firewall.getGroups(userId).any { it.name == GROUP } }
+            // Its page has an app's switches, and its apps.
+            find(text("allow_network_access"))
+            scrollTo(text("no_group_apps"))
+        }
+
+    @Test
+    fun addingAnAppToAGroupAsksFirstAndItsPageThenFollowsTheGroup() {
+        val id = firewall.addGroup(userId, GROUP)
+        firewall.setAppRules(testPackage, userId, IFirewall.BLOCK_WIFI)
+        val label = context.packageManager.getApplicationLabel(context.applicationInfo).toString()
+        onPage("GroupApps/$id/$userId") {
+            search(label)
+            find(By.text(label).clazz(TEXT_VIEW), "\"$label\" in the list").click()
+            find(text("add_to_group_title", label, GROUP))
+            find(text("add_to_group_text_rules", GROUP))
+            find(text("add")).click()
+            waitUntil {
+                firewall.getAppRulesForUser(userId).any {
+                    it.packageName == testPackage && it.group == id
+                }
+            }
+        }
+        onPage("AppRules/$testPackage/$userId") {
+            find(text("follows_group", GROUP))
+            find(text("leave_group")).click()
+            // It keeps a copy of the group's rules, which allow everything.
+            find(text("allow_network_access"))
+            assertTrue(isOn(text("network_wifi")))
+            assertEquals(0, firewall.getAppRules(testPackage, userId))
+        }
+    }
+
+    @Test
+    fun aGroupsPageSetsItsRulesAndRenamesAndDeletesIt() {
+        val id = firewall.addGroup(userId, GROUP)
+        firewall.setAppGroup(testPackage, userId, id)
+        onPage("Group/$id/$userId") {
+            find(text("allow_network_access")).click()
+            waitUntil {
+                firewall.getAppRules(IFirewall.GROUP_PREFIX + id, userId) == IFirewall.BLOCK_ALL &&
+                    firewall.getAppRulesForUser(userId).any {
+                        it.packageName == testPackage && it.blockedNow
+                    }
+            }
+            scrollTo(text("rename_group")).click()
+            editText().text = RENAMED_GROUP
+            // The dialog's button, which the row behind it shares its text with.
+            val dialog = checkNotNull(find(text("rename_group_title")).parent) { "No dialog" }
+            checkNotNull(dialog.findObject(By.text(text("rename_group")))) { "No button" }.click()
+            waitUntil { firewall.getGroups(userId).any { it.name == RENAMED_GROUP } }
+            scrollTo(text("delete_group")).click()
+            find(text("delete_group_text"))
+            find(text("delete")).click()
+            waitUntil { firewall.getGroups(userId).none { it.id == id } }
+            // Its app keeps a copy of its rules, and the page closes.
+            assertEquals(IFirewall.BLOCK_ALL, firewall.getAppRules(testPackage, userId))
+            assertTrue(device.wait(Until.gone(By.text(RENAMED_GROUP)), TIMEOUT))
+        }
+    }
+
+    @Test
     fun rulesForAllAppsHaveATabPerKind() =
         onPage("AllAppsRules/$userId") {
             for ((tab, add) in RULE_TABS) {
@@ -1071,6 +1144,9 @@ class FirewallAppTest {
         const val DOWNLOAD_DIR = "/sdcard/Download"
         const val NOT_AN_EXPORT = "not-firewall-rules.xml"
         const val LIST_FILE = "firewall-test-list.txt"
+        const val GROUP = "Firewall test group"
+        const val RENAMED_GROUP = "Firewall test group, renamed"
+        val TEST_GROUPS = setOf(GROUP, RENAMED_GROUP)
         const val SYSTEMUI_BATTERY = "com.android.systemui:id/battery_meter_composable_view"
         const val NO_INTERNET = "org.lineageos.firewall.hostside.nointernet"
         val PERMISSION_CONTROLLER: Pattern = Pattern.compile(".*permissioncontroller")

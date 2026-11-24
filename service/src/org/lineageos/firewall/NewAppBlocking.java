@@ -245,7 +245,10 @@ final class NewAppBlocking extends Feature {
         if (uid < 0) return false;
         int userId = UserHandle.getUserHandleForUid(uid).getIdentifier();
         Pair<String, Integer> app = Pair.create(packageName, userId);
-        if (mService.store().apps.containsKey(app) || !mService.userInstalled(app)) return false;
+        if (mService.store().apps.containsKey(app) || mService.groupOfLocked(app) != null
+                || !mService.userInstalled(app)) {
+            return false;
+        }
         boolean lacksInternet = mService.context().checkPermission(
                 Manifest.permission.INTERNET, -1, uid) != PackageManager.PERMISSION_GRANTED;
         if (!lacksInternet && !blockNewInstalls.contains(userId)) return false;

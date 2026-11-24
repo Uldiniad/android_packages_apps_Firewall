@@ -28,10 +28,14 @@ cc_library_shared {
         "jni_headers",
     ],
     shared_libs: [
+        "dnsresolver_aidl_interface-V7-cpp",
         "libbase",
+        "libbinder",
         "liblog",
         "libnativehelper",
         "libprocessgroup",
+        "libutils",
+        "netd_event_listener_interface-V1-cpp",
     ],
     cflags: [
         "-Wall",

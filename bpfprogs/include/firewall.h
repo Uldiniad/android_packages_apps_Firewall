@@ -18,7 +18,8 @@
 #define FW_VPN_RANGES 32
 #define FW_IP_RULES_SIZE 262144
 #define FW_PORT_RULES_SIZE 16384
-#define FW_USERS_SIZE 256
+// Every user id Android gives out: an id times AID_USER_OFFSET fits an int.
+#define FW_USERS_SIZE (0x7fffffff / AID_USER_OFFSET + 1)
 // Addresses of allowed domains' answers, recently used ones kept when it fills.
 #define FW_LEARNED_SIZE 8192
 #define FW_DOMAIN_RULES_SIZE 262144
@@ -76,6 +77,8 @@
 #define FW_SCOPE_INCOMING_BLOCKS (1u << 21)
 #define FW_SCOPE_INCOMING_ALLOWS (1u << 22)
 #define FW_SCOPE_INCOMING (FW_SCOPE_INCOMING_BLOCKS | FW_SCOPE_INCOMING_ALLOWS)
+// In user_flags: the user's activity log is on, so what the programs let through is reported too.
+#define FW_USER_LOG (1u << 23)
 #define FW_INCOMING_SCOPE (1u << 30)
 // A list's domains are in a file netd maps: FW_LISTS_DIR "<slot>-<generation>.names", which holds
 // FW_LIST_NAMES_MAGIC, a count, and the sorted keys of fw_domain_hash with the subdomain bit.
@@ -152,14 +155,14 @@ enum fw_refusal_direction {
     FW_REFUSAL_INCOMING,
 };
 
-// An app's refusals one way to or from one far end. The far end's address and port are as sent,
-// an IPv4 address in addr[0].
+// An app's refusals one way to or from one far end, or with its user's log on what was let
+// through. The far end's address and port are as sent, an IPv4 address in addr[0].
 struct fw_refusal_key {
     __u32 uid;
     __u8 direction;
     __u8 protocol;
     __u8 v6;
-    __u8 unused;
+    __u8 allowed;
     __u16 port;
     __u16 unused2;
     __u32 addr[4];
@@ -175,10 +178,12 @@ struct fw_refusal_stats {
     __u32 unused;
 };
 
-// A report to the service: the first refusal of a key, then at most one a minute.
+// A report to the service: the first refusal of a key, then at most one a minute, with the
+// interface of the packet that made it, or for a connect, the network its socket goes out on.
 struct fw_refusal {
     struct fw_refusal_key key;
-    __u32 unused;
+    __u32 ifindex;
+    __u32 net_id;
     struct fw_refusal_stats stats;
 };
 

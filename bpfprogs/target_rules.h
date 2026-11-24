@@ -10,9 +10,10 @@
 // networks if wanted. Domains are decided by netd's lookup check; the programs see the addresses
 // the answers to allowed domains gave, which netd writes to learned.
 
-// The kinds of rules each user's scope has, as an app's are kept with its rules.
+// The kinds of rules each user's scope has, as an app's are kept with its rules. An array by user
+// id, as every packet reads it and the kernel inlines array lookups.
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(type, BPF_MAP_TYPE_ARRAY);
     __type(key, __u32);
     __type(value, __u32);
     __uint(max_entries, FW_USERS_SIZE);

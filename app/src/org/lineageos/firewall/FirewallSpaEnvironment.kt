@@ -29,6 +29,7 @@ class FirewallSpaEnvironment(context: Context) : SpaEnvironment(context) {
                     GroupsPageProvider,
                     GroupPageProvider,
                     GroupAppsPageProvider,
+                    ActivityPageProvider,
                 ),
             rootPages = listOf(AppListPageProvider.createSettingsPage()),
         )

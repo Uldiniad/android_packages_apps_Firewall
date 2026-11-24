@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Entry for one user or profile, and the title of its page: what apps sent and received, and the lookups the firewall refused. -->
+    <string name="activity_title">Activity</string>
+    <string name="activity_on">On</string>
+    <string name="activity_off">Off</string>
+    <!-- The page's switch; turning it off keeps what's recorded. -->
+    <string name="record_activity">Record activity</string>
+    <!-- Tabs of the activity page. -->
+    <string name="activity_all">All</string>
+    <string name="activity_allowed">Allowed</string>
+    <string name="activity_blocked">Blocked</string>
+    <!-- How much storage the log takes, like "Uses 1.2 MB", with where it's kept. -->
+    <string name="activity_size">Uses <xliff:g id="size" example="1.2 MB">%1$s</xliff:g></string>
+    <string name="activity_kept">Activity stays on this phone until you clear it, and isn\'t backed up</string>
+    <string name="activity_trimming">Storage is low, so new activity takes the place of the oldest</string>
+    <string name="no_activity">No activity</string>
+    <string name="no_activity_off">Turn on Record activity to see what apps connect to</string>
+    <string name="clear_activity">Clear activity</string>
+    <string name="clear_activity_title">Clear activity?</string>
+    <string name="clear_activity_text">Everything recorded so far is deleted.</string>
+    <string name="clear">Clear</string>
+    <!-- An entry's parts, joined in its summary, like "Chrome · Blocked: domain rule · UDP 53 · Wi-Fi · 12:05". -->
+    <string name="activity_separator">" · "</string>
+    <string name="activity_blocked_by">Blocked: <xliff:g id="reason" example="domain rule">%1$s</xliff:g></string>
+    <string name="activity_protocol_port"><xliff:g id="protocol" example="TCP">%1$s</xliff:g> <xliff:g id="port" example="443">%2$d</xliff:g></string>
+    <string name="activity_protocol">Protocol <xliff:g id="number" example="1">%1$d</xliff:g></string>
+    <string name="activity_lookup">Lookup</string>
+    <string name="activity_incoming">Connection from others</string>
+    <plurals name="activity_count">
+        <item quantity="one">once</item>
+        <item quantity="other"><xliff:g id="count" example="37">%d</xliff:g> times</item>
+    </plurals>
+    <!-- The rule that refused something, the most specific first. -->
+    <string name="reason_all">blocked everywhere</string>
+    <string name="reason_network">blocked on this network</string>
+    <string name="reason_address">address rule</string>
+    <string name="reason_port">port rule</string>
+    <!-- An app kept on Android's DNS, which the firewall checks, tried another DNS server. -->
+    <string name="reason_dns">Android\'s DNS only</string>
+    <string name="reason_lan">local network through a VPN</string>
+    <string name="reason_list">list</string>
+    <string name="reason_domain">domain rule or list</string>
+    <string name="reason_incoming">incoming rule</string>
+    <string name="reason_for_all_apps"><xliff:g id="reason" example="address rule">%1$s</xliff:g> for all apps</string>
+</resources>

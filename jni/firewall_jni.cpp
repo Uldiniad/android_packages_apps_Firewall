@@ -185,5 +185,6 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
     if (firewall::registerSpecificNetworks(env, cls)) return JNI_ERR;
     if (firewall::registerLocalNetwork(env, cls)) return JNI_ERR;
     if (firewall::registerBlockLists(env, cls)) return JNI_ERR;
+    if (firewall::registerActivityLog(env, cls)) return JNI_ERR;
     return JNI_VERSION_1_6;
 }

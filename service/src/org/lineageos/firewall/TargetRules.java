@@ -263,6 +263,8 @@ final class TargetRules extends Feature {
         int flags = entries.flags() | (incoming.flags() & FirewallMaps.SCOPE_INCOMING);
         BlockLists lists = mService.feature(BlockLists.class);
         if (lists != null) flags |= lists.userFlagsLocked(userId);
+        ActivityLog log = mService.feature(ActivityLog.class);
+        if (log != null) flags |= log.userFlagsLocked(userId);
         mService.maps().setUserFlags(userId, flags);
     }
 

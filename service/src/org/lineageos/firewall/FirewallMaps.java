@@ -52,6 +52,8 @@ final class FirewallMaps {
     static final int SCOPE_INCOMING_BLOCKS = 1 << 21;
     static final int SCOPE_INCOMING_ALLOWS = 1 << 22;
     static final int SCOPE_INCOMING = SCOPE_INCOMING_BLOCKS | SCOPE_INCOMING_ALLOWS;
+    /** In user flags: the user's activity log is on, so what is let through is reported too. */
+    static final int USER_LOG = 1 << 23;
     /** A scope with this set holds the incoming rules of the scope without it. */
     static final int INCOMING_SCOPE = 1 << 30;
     static final int LIST_SLOTS = 64;
@@ -147,4 +149,7 @@ final class FirewallMaps {
     static native FileDescriptor nativeRefusalsFd();
     static native long[] nativeConsumeRefusals();
     static native long[] nativeRefusalStats();
+    static native FileDescriptor nativeListenForLookups();
+    static native void nativeSetLookupsWanted(boolean wanted);
+    static native String[][] nativeConsumeLookups();
 }

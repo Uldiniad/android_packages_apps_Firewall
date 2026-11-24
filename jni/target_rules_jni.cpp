@@ -28,7 +28,7 @@ struct Rules {
 Rules gRules;
 
 jint nativeSetUserFlags(JNIEnv*, jclass, jint user, jint flags) {
-    return setOrUnset(gRules.userFlags, static_cast<uint32_t>(user), static_cast<uint32_t>(flags));
+    return set(gRules.userFlags, static_cast<uint32_t>(user), static_cast<uint32_t>(flags));
 }
 
 // Limit 0 is every network, so the arrays start at limit 1; empty ones delete the scope's limits.
@@ -104,7 +104,7 @@ bool initTargetRules() {
 }
 
 void clearTargetRules() {
-    clear(gRules.userFlags);
+    zero(gRules.userFlags);
     clear(gRules.ip4Block);
     clear(gRules.ip6Block);
     clear(gRules.ip4Allow);

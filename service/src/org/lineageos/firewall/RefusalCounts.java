@@ -95,6 +95,7 @@ final class RefusalCounts extends Feature {
     void onRefusals(List<Maps.Refusal> refusals) {
         synchronized (mService) {
             for (Maps.Refusal refusal : refusals) {
+                if (refusal.key().allowed()) continue;
                 LoggedRefusal logged = mRefusals.remove(refusal.key());
                 if (logged == null) {
                     logged = new LoggedRefusal();
@@ -114,6 +115,8 @@ final class RefusalCounts extends Feature {
                     mRefusals.remove(mRefusals.keySet().iterator().next());
                 }
             }
+            ActivityLog log = mService.feature(ActivityLog.class);
+            if (log != null) log.onTrafficLocked(refusals);
         }
     }
 

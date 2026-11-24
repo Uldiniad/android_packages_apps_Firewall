@@ -53,6 +53,13 @@ void clear(BpfMap<Key, Value>& map) {
     }
 }
 
+// Clears an array map, whose entries can't be deleted, by setting each back to zero.
+template <class Value>
+void zero(BpfMap<uint32_t, Value>& map) {
+    auto size = map.maxEntries();
+    for (uint32_t key = 0; size.ok() && key < *size; key++) set(map, key, Value{});
+}
+
 // Writes value for the address into the IPv4 or IPv6 map by its length; a value of 0 deletes it.
 template <typename Key4, typename Key6>
 jint setPrefix(JNIEnv* env, jbyteArray address, Key4 key4, Key6 key6,
@@ -72,6 +79,7 @@ jint setPrefix(JNIEnv* env, jbyteArray address, Key4 key4, Key6 key6,
 // Each feature opens and clears its maps, and registers its natives on FirewallMaps.
 bool initRefusalCounts();
 int registerRefusalCounts(JNIEnv* env, jclass cls);
+int registerActivityLog(JNIEnv* env, jclass cls);
 bool initTargetRules();
 void clearTargetRules();
 int registerTargetRules(JNIEnv* env, jclass cls);

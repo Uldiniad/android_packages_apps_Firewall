@@ -115,6 +115,19 @@ final class NetworkTracker extends ConnectivityManager.NetworkCallback {
         for (int ifindex : mInterfaces.getOrDefault(netId, Set.of())) mMaps.setIface(ifindex, bits);
     }
 
+    /** The transport, as a FirewallMaps.BLOCK_* bit, of the network with the interface; 0 if none. */
+    synchronized int transportOfInterface(int ifindex) {
+        for (Map.Entry<Integer, Set<Integer>> network : mInterfaces.entrySet()) {
+            if (network.getValue().contains(ifindex)) return transportOfNetwork(network.getKey());
+        }
+        return 0;
+    }
+
+    /** The same for the network with the netd id. */
+    synchronized int transportOfNetwork(int netId) {
+        return mTransports.getOrDefault(netId, 0);
+    }
+
     /** Takes the sources' bits again, as what they give changed, and writes those that did. */
     synchronized void refreshSourceBits() {
         for (int netId : mTransports.keySet()) {

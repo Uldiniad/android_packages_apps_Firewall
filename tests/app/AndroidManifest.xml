@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <!-- Requested so the app page's local network row, which opens Android's page, is enabled. -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <!-- To send what the activity log records. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application>
         <!-- Sees the firewall app's notifications once the test allows it, as CTS does. -->

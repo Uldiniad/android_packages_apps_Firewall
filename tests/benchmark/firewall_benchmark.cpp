@@ -93,7 +93,8 @@ class FirewallBench : public benchmark::Fixture {
         fw_scope_ip6_key multicast = multicastKey();
         deleteMapEntry(mIp6Allow, &multicast);
         deleteMapEntry(mLimits, &kUserScope);
-        deleteMapEntry(mUserFlags, &kTestUser);
+        uint32_t none = 0;
+        writeToMapEntry(mUserFlags, &kTestUser, &none, BPF_EXIST);
         deleteMapEntry(mUidRules, &kTestUid);
         mSocket.reset();
         mTun.destroy();

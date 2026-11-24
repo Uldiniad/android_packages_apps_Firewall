@@ -108,7 +108,8 @@ public final class FirewallService extends SystemService {
                 new RefusalCounts(this),
                 new MainSwitch(this),
                 new BlockLists(this, storeDir),
-                new Groups(this));
+                new Groups(this),
+                new ActivityLog(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
 
@@ -968,6 +969,30 @@ public final class FirewallService extends SystemService {
         public void setAppGroup(String packageName, int userId, String id) {
             enforceUser(userId);
             runAsSystem(() -> feature(Groups.class).setAppGroupInternal(packageName, userId, id));
+        }
+
+        @Override
+        public void setActivityLog(int userId, boolean on) {
+            enforceUser(userId);
+            runAsSystem(() -> feature(ActivityLog.class).setActivityLogInternal(userId, on));
+        }
+
+        @Override
+        public boolean isActivityLogOn(int userId) {
+            enforceUser(userId);
+            return feature(ActivityLog.class).isActivityLogInternal(userId);
+        }
+
+        @Override
+        public ActivityEntry[] takeActivity(int userId) {
+            enforceUser(userId);
+            return feature(ActivityLog.class).takeActivityInternal(userId);
+        }
+
+        @Override
+        public void clearActivity(int userId) {
+            enforceUser(userId);
+            feature(ActivityLog.class).clearActivityInternal(userId);
         }
 
         @Override

@@ -13,6 +13,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.ServiceManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Tells a user who set rules that the firewall isn't running after a boot, as Android tells them
@@ -80,5 +83,14 @@ object NotRunningNotification {
 class BootCompletedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         NotRunningNotification.postIfNotRunning(context)
+        // Activity from before the user unlocked waits in the service.
+        val result = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                ActivityStore.takeNew(context)
+            } finally {
+                result.finish()
+            }
+        }
     }
 }

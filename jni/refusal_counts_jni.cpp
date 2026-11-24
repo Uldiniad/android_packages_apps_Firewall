@@ -44,14 +44,16 @@ jobject nativeRefusalsFd(JNIEnv* env, jclass) {
     return descriptor;
 }
 
-// A refusal as 13 longs: uid, direction, protocol, IPv6 flag, port and the address words in host
-// order, then its count, reasons and first and last boot times.
-void pack(std::vector<jlong>& values, const fw_refusal_key& key, const fw_refusal_stats& stats) {
+// A refusal, or what was let through, as 16 longs: uid, direction, protocol, IPv6 flag, port and
+// the address words in host order, whether it was let through, then its count, reasons, first and
+// last boot times, and its report's interface and, for a connect, network id, 0 when there's none.
+void pack(std::vector<jlong>& values, const fw_refusal_key& key, const fw_refusal_stats& stats,
+          uint32_t ifindex, uint32_t netId) {
     values.insert(values.end(), {key.uid, key.direction, key.protocol, key.v6, key.port,
                                  ntohl(key.addr[0]), ntohl(key.addr[1]), ntohl(key.addr[2]),
-                                 ntohl(key.addr[3]), static_cast<jlong>(stats.count),
+                                 ntohl(key.addr[3]), key.allowed, static_cast<jlong>(stats.count),
                                  stats.reasons, static_cast<jlong>(stats.first_ns),
-                                 static_cast<jlong>(stats.last_ns)});
+                                 static_cast<jlong>(stats.last_ns), ifindex, netId});
 }
 
 jlongArray toArray(JNIEnv* env, const std::vector<jlong>& values) {
@@ -64,7 +66,9 @@ jlongArray nativeConsumeRefusals(JNIEnv* env, jclass) {
     std::vector<jlong> values;
     if (refusals()) {
         auto result = refusals()->ConsumeAll(
-                [&](const fw_refusal& refusal) { pack(values, refusal.key, refusal.stats); });
+                [&](const fw_refusal& refusal) {
+                    pack(values, refusal.key, refusal.stats, refusal.ifindex, refusal.net_id);
+                });
         if (!result.ok()) ALOGE("consume refusals: %s", result.error().message().c_str());
     }
     return toArray(env, values);
@@ -75,7 +79,7 @@ jlongArray nativeRefusalStats(JNIEnv* env, jclass) {
     std::vector<jlong> values;
     gRefusalStats.iterate([&](const fw_refusal_key& key, const fw_refusal_stats& stats)
                                        -> android::base::Result<void> {
-        pack(values, key, stats);
+        pack(values, key, stats, 0, 0);
         return {};
     });
     return toArray(env, values);

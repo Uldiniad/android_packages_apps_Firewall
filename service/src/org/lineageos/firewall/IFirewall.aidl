@@ -5,6 +5,7 @@
 
 package org.lineageos.firewall;
 
+import org.lineageos.firewall.ActivityEntry;
 import org.lineageos.firewall.AppRule;
 import org.lineageos.firewall.FirewallGroup;
 import org.lineageos.firewall.FirewallList;
@@ -53,6 +54,33 @@ interface IFirewall {
 
     /** A group goes by this and its id where calls take an app's packageName, for its rules. */
     const String GROUP_PREFIX = "group:";
+
+    /** What an ActivityEntry is: a connection, traffic out or in, one others opened, a lookup. */
+    const int ACTIVITY_CONNECT = 0;
+    const int ACTIVITY_OUT = 1;
+    const int ACTIVITY_IN = 2;
+    const int ACTIVITY_INCOMING = 3;
+    const int ACTIVITY_LOOKUP = 4;
+    /**
+     * Why something was refused, as bits: the app blocked everywhere or on the network, its
+     * address, port, own DNS, local network through a VPN, list or domain rules, or its incoming
+     * rules; those for all apps apart.
+     */
+    const int REASON_ALL = 1;
+    const int REASON_NETWORK = 2;
+    const int REASON_ADDRESS = 4;
+    const int REASON_PORT = 8;
+    const int REASON_DNS = 16;
+    const int REASON_USER_ADDRESS = 32;
+    const int REASON_USER_PORT = 64;
+    const int REASON_USER_DNS = 128;
+    const int REASON_LAN = 256;
+    const int REASON_LIST = 512;
+    const int REASON_USER_LIST = 1024;
+    const int REASON_DOMAIN = 2048;
+    const int REASON_USER_DOMAIN = 4096;
+    const int REASON_INCOMING = 8192;
+    const int REASON_USER_INCOMING = 16384;
 
     void setAppRules(String packageName, int userId, int rules);
     /** Blocks the app, or allows it, until the time in milliseconds since the epoch; 0 ends it. */
@@ -126,4 +154,12 @@ interface IFirewall {
      * a null id takes them out, leaving them a copy of the group's rules as their own.
      */
     void setAppGroup(String packageName, int userId, @nullable String id);
+
+    /** Turns the user's activity log on or off; off stops recording, and keeps what's there. */
+    void setActivityLog(int userId, boolean on);
+    boolean isActivityLogOn(int userId);
+    /** The user's new entries, which the firewall app keeps from then on. */
+    ActivityEntry[] takeActivity(int userId);
+    /** Drops the user's entries the firewall app hasn't taken yet. */
+    void clearActivity(int userId);
 }

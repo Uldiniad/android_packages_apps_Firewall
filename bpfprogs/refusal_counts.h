@@ -6,8 +6,9 @@
 // Included once, by firewall.c, after the core's maps and helpers.
 #pragma once
 
-// Refusals for the service to log: every one counted here, and reported at once the first time
-// and then at most once a minute, so a refused flood can't swamp the service.
+// Refusals for the service to log, and with a user's log on what was let through: every packet
+// counted here, and reported at once the first time and then at most once a minute, so a flood
+// can't swamp the service.
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, FW_REFUSALS_SIZE);
@@ -71,11 +72,11 @@ static __always_inline __u32 refusal_reasons(__u32 uid, __u32 rules, __u8 direct
 }
 
 // Counts a refusal, and reports it the first time and then at most once a minute.
-static __always_inline void note_refusal(__u32 uid, __u32 rules, __u8 direction,
+static __always_inline void note_refusal(__u32 uid, __u32 rules, __u8 direction, bool allowed,
                                          const struct l4_info* info, bool parsed,
                                          const struct fw_path* path) {
     struct fw_refusal_key key = {.uid = uid, .direction = direction, .protocol = info->protocol,
-                                 .v6 = info->v6,
+                                 .v6 = info->v6, .allowed = allowed,
                                  .port = direction == FW_REFUSAL_INCOMING ? info->local_port
                                                                           : info->port};
     __builtin_memcpy(key.addr, info->addr, sizeof(key.addr));
@@ -91,12 +92,13 @@ static __always_inline void note_refusal(__u32 uid, __u32 rules, __u8 direction,
     stats->last_ns = now;
     if (stats->reported_ns && now - stats->reported_ns < FW_NS_PER_MINUTE) return;
     stats->reported_ns = now;
-    stats->reasons = refusal_reasons(uid, rules, direction, info, parsed, path);
+    stats->reasons = allowed ? 0 : refusal_reasons(uid, rules, direction, info, parsed, path);
     // If the buffer is full, the count stays here for the service to collect.
     struct fw_refusal* event = bpf_ringbuf_reserve(&refusals, sizeof(*event), 0);
     if (!event) return;
     event->key = key;
-    event->unused = 0;
+    event->ifindex = path->ifindex;
+    event->net_id = path->connect ? fw_socket_net_id(path->mark, path->owner_uid) : 0;
     event->stats = *stats;
     bpf_ringbuf_submit(event, 0);
 }

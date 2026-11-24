@@ -115,6 +115,7 @@ private fun UserSettings(userId: Int) {
         NewAppsPreferences(userId)
         AllAppsRulesEntry(userId)
         GroupsEntry(userId)
+        ActivityEntryPreference(userId)
         ExportImportEntry(userId)
     }
 }

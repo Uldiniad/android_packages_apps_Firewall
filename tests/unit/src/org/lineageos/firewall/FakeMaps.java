@@ -202,4 +202,9 @@ final class FakeMaps implements Maps {
     @Override public FileDescriptor refusalsFd() { return null; }
     @Override public List<Refusal> consumeRefusals() { return List.of(); }
     @Override public List<Refusal> refusalStats() { return List.of(); }
+    /** Whether the service wants the resolver's lookups kept. */
+    boolean lookupsWanted;
+    @Override public FileDescriptor listenForLookups() { return null; }
+    @Override public void setLookupsWanted(boolean wanted) { lookupsWanted = wanted; }
+    @Override public List<Lookup> consumeLookups() { return List.of(); }
 }

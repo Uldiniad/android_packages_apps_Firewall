@@ -5,6 +5,7 @@
 
 package org.lineageos.firewall;
 
+import android.net.InetAddresses;
 import android.os.SystemProperties;
 import android.system.Os;
 
@@ -70,16 +71,31 @@ interface Maps {
     List<Refusal> consumeRefusals();
     /** Every count the BPF programs keep, also those that came after their last report. */
     List<Refusal> refusalStats();
+    /**
+     * Has the resolver report every app's lookups, once; a descriptor that is readable when some
+     * are waiting, or null when the resolver can't be reached.
+     */
+    FileDescriptor listenForLookups();
+    /** Whether lookups are kept for the service until it takes them. */
+    void setLookupsWanted(boolean wanted);
+    /** The lookups reported since the last call, oldest first. */
+    List<Lookup> consumeLookups();
 
-    /** Where an app's refusals go: which way, and the far end. */
-    record RefusalKey(int uid, int direction, int protocol, InetAddress address, int port) {}
+    /**
+     * Where an app's refusals go, which way and the far end, or with its user's log on where
+     * what was let through went.
+     */
+    record RefusalKey(int uid, int direction, int protocol, InetAddress address, int port,
+            boolean allowed) {}
 
     /**
      * An app's refusals to or from one far end: how many since the BPF programs first saw it, why
-     * (FW_REFUSED_* bits), and the first and last as boot times.
+     * (FW_REFUSED_* bits), the first and last as boot times, and the interface of the report and,
+     * for a connect, the netd network id its socket went out on, 0 when there's none.
      */
-    record Refusal(RefusalKey key, long count, int reasons, long firstNanos, long lastNanos) {
-        private static final int LONGS = 13;
+    record Refusal(RefusalKey key, long count, int reasons, long firstNanos, long lastNanos,
+            int ifindex, int netId) {
+        private static final int LONGS = 16;
 
         /** The refusals the JNI packs, LONGS each. */
         static List<Refusal> fromLongs(long[] values) {
@@ -92,13 +108,37 @@ interface Maps {
                 try {
                     refusals.add(new Refusal(new RefusalKey((int) values[i], (int) values[i + 1],
                             (int) values[i + 2], InetAddress.getByAddress(address),
-                            (int) values[i + 4]), values[i + 9], (int) values[i + 10],
-                            values[i + 11], values[i + 12]));
+                            (int) values[i + 4], values[i + 9] != 0), values[i + 10],
+                            (int) values[i + 11], values[i + 12], values[i + 13],
+                            (int) values[i + 14], (int) values[i + 15]));
                 } catch (UnknownHostException e) {
                     throw new AssertionError(e);
                 }
             }
             return refusals;
+        }
+    }
+
+    /**
+     * A lookup an app made through the resolver: the resolver's result, 0 for an answer, then the
+     * name and the answer's addresses.
+     */
+    record Lookup(int uid, int result, String name, List<InetAddress> addresses) {
+        /** The lookups the JNI packs, each its uid, result, name and addresses as text. */
+        static List<Lookup> fromStrings(String[][] rows) {
+            List<Lookup> lookups = new ArrayList<>();
+            for (String[] row : rows) {
+                List<InetAddress> addresses = new ArrayList<>();
+                for (int i = 3; i < row.length; i++) {
+                    // Only numeric addresses come from the resolver, so nothing is looked up.
+                    if (InetAddresses.isNumericAddress(row[i])) {
+                        addresses.add(InetAddresses.parseNumericAddress(row[i]));
+                    }
+                }
+                lookups.add(new Lookup(Integer.parseInt(row[0]), Integer.parseInt(row[1]), row[2],
+                        addresses));
+            }
+            return lookups;
         }
     }
 
@@ -169,6 +209,15 @@ interface Maps {
         }
         @Override public List<Refusal> refusalStats() {
             return Refusal.fromLongs(FirewallMaps.nativeRefusalStats());
+        }
+        @Override public FileDescriptor listenForLookups() {
+            return FirewallMaps.nativeListenForLookups();
+        }
+        @Override public void setLookupsWanted(boolean wanted) {
+            FirewallMaps.nativeSetLookupsWanted(wanted);
+        }
+        @Override public List<Lookup> consumeLookups() {
+            return Lookup.fromStrings(FirewallMaps.nativeConsumeLookups());
         }
     };
 

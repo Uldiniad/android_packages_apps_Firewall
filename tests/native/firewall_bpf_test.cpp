@@ -157,7 +157,15 @@ class FirewallBpfTest : public ::testing::Test {
 
     void TearDown() override {
         TearDownList();
-        for (auto& [map, key] : mWritten) deleteMapEntry(mMaps[map], key.data());
+        for (auto& [map, key] : mWritten) {
+            // An array's entries can't be deleted, only set back to zero.
+            if (map == "user_flags") {
+                uint32_t none = 0;
+                writeToMapEntry(mMaps[map], key.data(), &none, BPF_EXIST);
+            } else {
+                deleteMapEntry(mMaps[map], key.data());
+            }
+        }
         mTun.destroy();
     }
 
@@ -262,13 +270,18 @@ class FirewallBpfTest : public ::testing::Test {
     }
 
     // Writes a packet from the peer's |from| port to the phone's |port| into the test interface,
-    // as if it arrived: a UDP datagram, or a TCP segment with |tcpFlags|.
+    // as if it arrived: a TCP segment with |tcpFlags|, or a UDP datagram, whose payload then has
+    // them where TCP keeps its flags.
     void arrive(uint8_t protocol, uint16_t from, uint16_t port, uint8_t tcpFlags = 0) {
         std::vector<uint8_t> l4 = {static_cast<uint8_t>(from >> 8), static_cast<uint8_t>(from),
                                    static_cast<uint8_t>(port >> 8), static_cast<uint8_t>(port)};
         size_t checksum;
         if (protocol == IPPROTO_UDP) {
-            l4.insert(l4.end(), {0, 9, 0, 0, 'x'});
+            std::vector<uint8_t> payload = {'x'};
+            if (tcpFlags) payload = {'x', 'x', 'x', 'x', 'x', tcpFlags};
+            uint8_t length = static_cast<uint8_t>(8 + payload.size());
+            l4.insert(l4.end(), {0, length, 0, 0});
+            l4.insert(l4.end(), payload.begin(), payload.end());
             checksum = 6;
         } else {
             l4.resize(20);
@@ -304,11 +317,11 @@ class FirewallBpfTest : public ::testing::Test {
         return poll(&p, 1, 1000) > 0 && recv(fd, &byte, 1, MSG_DONTWAIT) >= 0;
     }
 
-    // A refusal of connections from the peer to the phone's |port|, cleared so only refusals
-    // from now on count.
-    fw_refusal_key clearedIncoming(uint8_t protocol, uint16_t port) {
+    // A refusal of connections from the peer to the phone's |port|, or what was let through,
+    // cleared so only those from now on count.
+    fw_refusal_key clearedIncoming(uint8_t protocol, uint16_t port, bool allowed = false) {
         fw_refusal_key key = {.uid = kTestUid, .direction = FW_REFUSAL_INCOMING,
-                              .protocol = protocol, .v6 = 1, .port = port};
+                              .protocol = protocol, .v6 = 1, .allowed = allowed, .port = port};
         in6_addr from = peer();
         memcpy(key.addr, &from, sizeof(key.addr));
         forget("refusal_stats", key);
@@ -359,11 +372,13 @@ class FirewallBpfTest : public ::testing::Test {
         return connect(fd.get(), reinterpret_cast<sockaddr*>(&to), len) ? errno : 0;
     }
 
-    // A UDP refusal's key, cleared so only refusals from now on count. The service drains the
-    // reports, so the counts behind them are what's checked.
-    fw_refusal_key clearedRefusal(uint8_t direction, int family, const char* address, int port) {
+    // A UDP refusal's key, or what was let through, cleared so only those from now on count. The
+    // service drains the reports, so the counts behind them are what's checked.
+    fw_refusal_key clearedRefusal(uint8_t direction, int family, const char* address, int port,
+                                  bool allowed = false) {
         fw_refusal_key key = {.uid = kTestUid, .direction = direction, .protocol = IPPROTO_UDP,
-                              .v6 = family == AF_INET6, .port = static_cast<uint16_t>(port)};
+                              .v6 = family == AF_INET6, .allowed = allowed,
+                              .port = static_cast<uint16_t>(port)};
         inet_pton(family, address, key.addr);
         forget("refusal_stats", key);
         deleteMapEntry(mMaps["refusal_stats"], &key);
@@ -985,6 +1000,34 @@ TEST_F(FirewallBpfTest, IncomingRulesForTheLocalNetworkNeedTheSenderOnIt) {
     put("lan6", subnet, uint32_t{FW_LAN_LOCAL});
     arrive(IPPROTO_UDP, 5000, kServed);
     EXPECT_FALSE(received(udp.get()));
+}
+
+TEST_F(FirewallBpfTest, WithItsUsersLogOnWhatAnAppIsLetDoIsCountedToo) {
+    setRules(0);
+    fw_refusal_key out = clearedRefusal(FW_REFUSAL_OUT, AF_INET6, "ff02::1", kPort, true);
+    EXPECT_EQ(0, sendMulticast(kPort));
+    EXPECT_EQ(0u, refusalStats(out).count);
+
+    setUserFlags(FW_USER_LOG);
+    EXPECT_EQ(0, sendMulticast(kPort));
+    EXPECT_EQ(0, sendMulticast(kPort));
+    fw_refusal_stats stats = refusalStats(out);
+    EXPECT_EQ(2u, stats.count);
+    EXPECT_EQ(0u, stats.reasons);
+
+    // A connection others open counts, not what follows it, which belongs to the connection.
+    fw_refusal_key incoming = clearedIncoming(IPPROTO_TCP, kServed, true);
+    unique_fd tcp = serving(SOCK_STREAM, kServed);
+    arrive(IPPROTO_TCP, 5001, kServed, kTcpSyn);
+    arrive(IPPROTO_TCP, 5002, kServed, kTcpAck);
+    EXPECT_EQ(1u, refusalStats(incoming).count);
+
+    // A datagram opens nothing, even one that reads as a SYN where TCP keeps its flags.
+    fw_refusal_key datagram = clearedIncoming(IPPROTO_UDP, kServed, true);
+    unique_fd udp = serving(SOCK_DGRAM, kServed);
+    arrive(IPPROTO_UDP, 5003, kServed, kTcpSyn);
+    EXPECT_TRUE(received(udp.get()));
+    EXPECT_EQ(0u, refusalStats(datagram).count);
 }
 
 }  // namespace

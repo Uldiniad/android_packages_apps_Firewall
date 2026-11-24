@@ -40,6 +40,9 @@ import com.android.compatibility.common.util.ThrowingSupplier
 import com.google.android.apps.common.testing.accessibility.framework.AccessibilityCheckResultUtils
 import com.google.android.apps.common.testing.accessibility.framework.checks.TouchTargetSizeCheck
 import com.google.android.apps.common.testing.accessibility.framework.matcher.ElementMatchers
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.function.BooleanSupplier
@@ -130,6 +133,8 @@ class FirewallAppTest {
             firewall.removeList(userId, list.packageName, list.id)
         }
         firewall.setNewInstallsBlocked(userId, newAppsBlocked)
+        firewall.setActivityLog(userId, false)
+        firewall.clearActivity(userId)
     }
 
     /** The app's own text, in the device's language. */
@@ -739,6 +744,22 @@ class FirewallAppTest {
     }
 
     @Test
+    fun theActivityPageShowsWhatThisAppSentAndClearsIt() =
+        onPage("Activity/$userId") {
+            find(text("record_activity")).click()
+            waitUntil { firewall.isActivityLogOn(userId) }
+            DatagramSocket().use {
+                it.send(DatagramPacket(byteArrayOf(1), 1, InetAddress.getByName(SENT_TO), 9))
+            }
+            find(SENT_TO)
+            findDescribed(text("abc_action_menu_overflow_description")).click()
+            find(text("clear_activity")).click()
+            find(text("clear_activity_title"))
+            find(text("clear")).click()
+            find(text("no_activity"))
+        }
+
+    @Test
     fun rulesForAllAppsHaveATabPerKind() =
         onPage("AllAppsRules/$userId") {
             for ((tab, add) in RULE_TABS) {
@@ -1145,6 +1166,7 @@ class FirewallAppTest {
         const val NOT_AN_EXPORT = "not-firewall-rules.xml"
         const val LIST_FILE = "firewall-test-list.txt"
         const val GROUP = "Firewall test group"
+        const val SENT_TO = "192.0.2.1"
         const val RENAMED_GROUP = "Firewall test group, renamed"
         val TEST_GROUPS = setOf(GROUP, RENAMED_GROUP)
         const val SYSTEMUI_BATTERY = "com.android.systemui:id/battery_meter_composable_view"

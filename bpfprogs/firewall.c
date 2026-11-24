@@ -87,15 +87,22 @@ static __always_inline __u32 vpn_net_for_uid(__u32 uid) {
 
 // The helpers below are global functions, which the verifier checks once on their own instead of
 // at every rule lookup that inlines them.
+__u32 fw_socket_net_id(__u32 mark, __u32 owner_uid);
 __u64 fw_socket_network(__u32 mark, __u32 owner_uid);
 // The network the socket goes out on, by netd's mark or the VPN the owner is under.
-__attribute__((noinline)) __u64 fw_socket_network(__u32 mark, __u32 owner_uid) {
+__attribute__((noinline)) __u32 fw_socket_net_id(__u32 mark, __u32 owner_uid) {
     __u32 net_id = mark & FW_NET_ID_MASK;
     __u32 vpn_net_id = vpn_net_for_uid(owner_uid);
     if (vpn_net_id && !(mark & FW_MARK_PROTECTED_FROM_VPN) &&
         !((mark & FW_MARK_EXPLICIT) && net_id != vpn_net_id)) {
         net_id = vpn_net_id;
     }
+    return net_id;
+}
+
+// That network's bits.
+__attribute__((noinline)) __u64 fw_socket_network(__u32 mark, __u32 owner_uid) {
+    __u32 net_id = fw_socket_net_id(mark, owner_uid);
     __u64* net = bpf_map_lookup_elem(&net_transport, &net_id);
     return net ? *net : 0;
 }
@@ -197,10 +204,14 @@ static __always_inline bool cut_off(__u8 direction, __u32 rules, const struct l4
 
 #include "refusal_counts.h"
 
-// Whether a packet out is dropped, and the counter it's dropped under.
+// The user's flags before anything read them; real flags never have every bit set.
+#define FW_FLAGS_UNREAD 0xffffffffu
+
+// Whether a packet out is dropped, and the counter it's dropped under, with the user's flags if it
+// read them.
 static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 rules,
                                         const struct fw_path* path, struct l4_info* info,
-                                        bool* parsed, __u32* counter) {
+                                        bool* parsed, __u32* counter, __u32* user_flags) {
     bool blocked_all = rules & FW_RULE_BLOCK_ALL;
     // Apps kept off loopback are blocked on it as on a network.
     bool blocked_here = path->ifindex == 1 || network_blocked(uid, rules, path);
@@ -237,6 +248,7 @@ static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 
     __u32 user = uid / AID_USER_OFFSET;
     __u32 user_scope = FW_USER_SCOPE | user;
     __u32 uflags = user_flags_of(user);
+    *user_flags = uflags;
     if ((uflags & FW_SCOPE_ALLOWS) && scope_allows(user_scope, uflags, info, path)) {
         count(FW_C_ALLOWED_BY_RULE);
         return false;
@@ -276,14 +288,23 @@ int egress(struct __sk_buff* skb) {
     struct l4_info info = {};
     bool parsed = false;
     __u32 counter;
-    if (!egress_drop(skb, uid, rules, &path, &info, &parsed, &counter)) return 1;
-    count(counter);
-    note_refusal(uid, rules, FW_REFUSAL_OUT, &info, parsed, &path);
-    return 0;
+    __u32 uflags = FW_FLAGS_UNREAD;
+    bool drop = egress_drop(skb, uid, rules, &path, &info, &parsed, &counter, &uflags);
+    if (drop) {
+        count(counter);
+    } else {
+        if (!parsed) return 1;
+        // Read here only when the app's own rules let the packet through early.
+        if (uflags == FW_FLAGS_UNREAD) uflags = user_flags_of(uid / AID_USER_OFFSET);
+        if (!(uflags & FW_USER_LOG)) return 1;
+    }
+    note_refusal(uid, rules, FW_REFUSAL_OUT, !drop, &info, parsed, &path);
+    return !drop;
 }
 
 // Incoming rules decide the connections others open to an app; otherwise only a blocked app's
-// packets in are checked.
+// packets in are checked. With the user's log on, connections others open are reported too,
+// while what comes back on the app's own connections counts with them, as it went out.
 SEC("cgroup_skb/ingress")
 int ingress(struct __sk_buff* skb) {
     __u32 ifindex = skb->ifindex;
@@ -295,22 +316,26 @@ int ingress(struct __sk_buff* skb) {
     __u32 uflags = user_flags_of(uid / AID_USER_OFFSET);
     struct fw_path path = {.ifindex = ifindex};
     bool blocked = (rules & FW_RULE_BLOCK_ALL) || network_blocked(uid, rules, &path);
-    if (!blocked && !((rules | uflags) & FW_SCOPE_INCOMING)) return 1;
+    if (!blocked && !((rules | uflags) & (FW_SCOPE_INCOMING | FW_USER_LOG))) return 1;
     struct l4_info info = {};
     bool parsed = parse_l4(skb, &info, false);
     int incoming = parsed ? incoming_verdict(skb, uid, rules, uflags, blocked, &info, &path) : -1;
-    if (incoming == 1) return 1;
-    if (incoming == 0) {
-        count(FW_C_INGRESS_DROP);
-        note_refusal(uid, rules, FW_REFUSAL_INCOMING, &info, parsed, &path);
-        return 0;
+    __u8 direction = FW_REFUSAL_INCOMING;
+    bool allowed = incoming == 1;
+    if (incoming < 0) {
+        // A blocked app still hears back from what its allow rules let it reach.
+        allowed = !blocked ||
+                  ((rules & FW_SCOPE_ALLOWS) && parsed && scope_allows(uid, rules, &info, &path));
+        if (allowed && !(parsed && tcp_opens(skb, &info))) return 1;
+        if (!allowed) direction = FW_REFUSAL_IN;
     }
-    if (!blocked) return 1;
-    // A blocked app still hears back from what its allow rules let it reach.
-    if ((rules & FW_SCOPE_ALLOWS) && parsed && scope_allows(uid, rules, &info, &path)) return 1;
-    count(FW_C_INGRESS_DROP);
-    note_refusal(uid, rules, FW_REFUSAL_IN, &info, parsed, &path);
-    return 0;
+    if (!allowed) {
+        count(FW_C_INGRESS_DROP);
+    } else if (!(uflags & FW_USER_LOG)) {
+        return 1;
+    }
+    note_refusal(uid, rules, direction, allowed, &info, parsed, &path);
+    return allowed;
 }
 
 // IPv4-mapped IPv6 addresses are taken as the IPv4 address.
@@ -364,7 +389,7 @@ static __always_inline int connect_verdict(struct bpf_sock_addr* ctx, bool v6) {
     }
     if (!blocked) return 1;
     count(FW_C_CONNECT_DENY);
-    note_refusal(uid, rules, FW_REFUSAL_CONNECT, &info, true, &path);
+    note_refusal(uid, rules, FW_REFUSAL_CONNECT, false, &info, true, &path);
     return 0;
 }
 

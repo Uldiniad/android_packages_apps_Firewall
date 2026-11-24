@@ -626,6 +626,85 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     }
 
     @Test
+    public void theActivityLogShowsWhereAnAppWentOnWhichNetworkWithTheNameItLookedUp()
+            throws Exception {
+        String rule = " block address 9.9.9.9 --package " + PACKAGE;
+        shell("cmd firewall set-activity-log on");
+        shell("cmd firewall add-rule" + rule);
+        try {
+            assertTrue(runDeviceTests(options("HostChecks", "looksUp", 0)
+                    .addInstrumentationArg("host", "one.one.one.one")));
+            assertTrue(run("HostChecks", "allowed", 0));
+            assertTrue(runDeviceTests(options("HostChecks", "refused", 0)
+                    .addInstrumentationArg("address", "9.9.9.9")));
+            String allowed = uidOf(PACKAGE, 0) + " allowed 1 6 1.1.1.1:443 one.one.one.one ";
+            // Refused at connect, before a packet went out: its network is its socket's.
+            String refused = uidOf(PACKAGE, 0) + " refused 0 6 9.9.9.9:443 null ";
+            waitUntil("No entries " + allowed + "and " + refused, 10_000, () -> {
+                String list = shell("cmd firewall list-activity");
+                return list.contains(allowed) && list.contains(refused);
+            });
+            String list = shell("cmd firewall list-activity");
+            String network = wordAfter(list, allowed);
+            assertNotEquals("0", network);
+            assertEquals(network, wordAfter(list, refused));
+        } finally {
+            shell("cmd firewall remove-rule" + rule);
+            shell("cmd firewall set-activity-log off");
+        }
+    }
+
+    /** The word that follows the text in the output. */
+    private static String wordAfter(String output, String text) {
+        String rest = output.substring(output.indexOf(text) + text.length());
+        return rest.split("\\s+", 2)[0];
+    }
+
+    @Test
+    public void theActivityLogShowsTheLookupsTheFirewallRefused() throws Exception {
+        String rule = " block domain example.org --package " + PACKAGE;
+        shell("cmd firewall set-activity-log on");
+        shell("cmd firewall add-rule" + rule);
+        try {
+            assertFalse(passes("HostChecks", "looksUp", 0));
+            String entry = uidOf(PACKAGE, 0) + " refused 4 0 null:0 example.org";
+            waitUntil("No entry " + entry, 10_000,
+                    () -> shell("cmd firewall list-activity").contains(entry));
+        } finally {
+            shell("cmd firewall remove-rule" + rule);
+            shell("cmd firewall set-activity-log off");
+        }
+    }
+
+    @Test
+    public void activityFromBeforeTheUserUnlocksGoesIntoTheLog() throws Exception {
+        String rule = " block address 9.9.9.9 --package " + PACKAGE;
+        Pattern waiting = Pattern.compile("user 0: \\d+ entries waiting for the firewall app");
+        shell("cmd firewall set-activity-log on");
+        shell("cmd firewall add-rule" + rule);
+        try {
+            // A stopped app gets no broadcasts, so the refusal waits in the service, as activity
+            // does until the user unlocks after a boot.
+            shell("am force-stop " + FIREWALL_APP);
+            assertTrue(runDeviceTests(options("HostChecks", "refused", 0)
+                    .addInstrumentationArg("address", "9.9.9.9")));
+            waitUntil("Nothing waits for the firewall app", 10_000,
+                    () -> waiting.matcher(shell("dumpsys firewall")).find());
+            shell("logcat -b crash -c");
+            // am returns once the app has finished with the broadcast.
+            shell("am broadcast --include-stopped-packages -a android.intent.action.BOOT_COMPLETED"
+                    + " -n " + FIREWALL_APP + "/.BootCompletedReceiver");
+            assertFalse(waiting.matcher(shell("dumpsys firewall")).find());
+            // A crash would come right after the app took the entries.
+            Thread.sleep(5_000);
+            assertFalse(shell("logcat -b crash -d").contains("Process: " + FIREWALL_APP + ","));
+        } finally {
+            shell("cmd firewall remove-rule" + rule);
+            shell("cmd firewall set-activity-log off");
+        }
+    }
+
+    @Test
     public void profilesKeepTheirCopyWithoutALauncherIcon() throws Exception {
         String launchers = "cmd package query-activities --brief -a android.intent.action.MAIN"
                 + " -c android.intent.category.LAUNCHER --user ";

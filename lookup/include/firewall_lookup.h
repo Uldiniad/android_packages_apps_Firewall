@@ -22,4 +22,8 @@ bool allowsLookup(uid_t uid, unsigned netId, const char* name);
 bool allowsAnswer(uid_t uid, unsigned netId, const char* name, const char* const* cnames,
                   size_t cnameCount, const in6_addr* addresses, size_t count);
 
+// The uid that a hotspot device's lookups count as, by an address it sent from, IPv4 as
+// IPv4-mapped: the device's, when it has rules of its own; -1 when they count as dnsmasq's.
+uid_t tetheringClientUid(const in6_addr* address);
+
 }  // namespace android::firewall

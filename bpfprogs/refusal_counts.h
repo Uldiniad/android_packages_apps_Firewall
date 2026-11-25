@@ -71,12 +71,14 @@ static __always_inline __u32 refusal_reasons(__u32 uid, __u32 rules, __u8 direct
     return reasons;
 }
 
-// Counts a refusal, and reports it the first time and then at most once a minute.
-static __always_inline void note_refusal(__u32 uid, __u32 rules, __u8 direction, bool allowed,
-                                         const struct l4_info* info, bool parsed,
-                                         const struct fw_path* path) {
-    struct fw_refusal_key key = {.uid = uid, .direction = direction, .protocol = info->protocol,
-                                 .v6 = info->v6, .allowed = allowed,
+// Counts a refusal of the reported uid's, and reports it the first time and then at most once a
+// minute, with the reasons the uid's rules give, which may be another scope's that decided for it.
+static __always_inline void note_refusal_as(__u32 reported, __u32 uid, __u32 rules,
+                                            __u8 direction, bool allowed,
+                                            const struct l4_info* info, bool parsed,
+                                            const struct fw_path* path) {
+    struct fw_refusal_key key = {.uid = reported, .direction = direction,
+                                 .protocol = info->protocol, .v6 = info->v6, .allowed = allowed,
                                  .port = direction == FW_REFUSAL_INCOMING ? info->local_port
                                                                           : info->port};
     __builtin_memcpy(key.addr, info->addr, sizeof(key.addr));
@@ -101,5 +103,11 @@ static __always_inline void note_refusal(__u32 uid, __u32 rules, __u8 direction,
     event->net_id = path->connect ? fw_socket_net_id(path->mark, path->owner_uid) : 0;
     event->stats = *stats;
     bpf_ringbuf_submit(event, 0);
+}
+
+static __always_inline void note_refusal(__u32 uid, __u32 rules, __u8 direction, bool allowed,
+                                         const struct l4_info* info, bool parsed,
+                                         const struct fw_path* path) {
+    note_refusal_as(uid, uid, rules, direction, allowed, info, parsed, path);
 }
 

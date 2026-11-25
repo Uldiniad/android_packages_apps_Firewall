@@ -27,6 +27,12 @@
 #define FW_REFUSALS_SIZE 65536
 #define FW_REFUSAL_STATS_SIZE 8192
 #define FW_LIST_SLOTS 64
+// Devices on the phone's hotspot with rules of their own get uids from here, in the main user,
+// which Android gives no process. Like system uids, Android's limits on apps don't hold up the
+// lookups the resolver makes as theirs. The addresses they send from are kept for dnsmasq.
+#define FW_HOTSPOT_DEVICE_UID_START 8000
+#define FW_HOTSPOT_DEVICES 1024
+#define FW_HOTSPOT_ADDRESSES 4096
 #define FW_NS_PER_MINUTE (60ULL * 1000 * 1000 * 1000)
 #define FW_FNV_OFFSET 0xcbf29ce484222325ULL
 #define FW_FNV_PRIME 0x100000001b3ULL
@@ -241,6 +247,11 @@ struct fw_learned_key {
 };
 
 // The slots of the specific networks an app is blocked or allowed on.
+// An address a hotspot device sent from, IPv4 as an IPv4-mapped IPv6 address, as dnsmasq keys it.
+struct fw_hotspot_address {
+    __u8 addr[16];
+};
+
 struct fw_named_networks {
     __u32 block;
     __u32 allow;

@@ -195,6 +195,8 @@ fun TargetRules(packageName: String, userId: Int) {
                                     R.string.no_group_rules
                                 packageName == IFirewall.HOTSPOT_PACKAGE ->
                                     R.string.no_hotspot_rules
+                                packageName.startsWith(IFirewall.DEVICE_PREFIX) ->
+                                    R.string.no_device_rules
                                 else -> R.string.no_app_rules
                             }
                         )

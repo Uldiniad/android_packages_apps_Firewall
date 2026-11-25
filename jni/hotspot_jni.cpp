@@ -24,6 +24,7 @@ namespace {
 using android::base::unique_fd;
 
 BpfMap<uint32_t, uint32_t> gUpstream;
+BpfMap<uint64_t, uint32_t> gDevices;
 
 // Sends a request to the kernel's traffic control and returns its answer, 0 or an errno.
 int request(const void* message, size_t length) {
@@ -135,16 +136,30 @@ jint nativeSetHotspotUpstream(JNIEnv*, jclass, jint netId) {
     return set(gUpstream, 0u, static_cast<uint32_t>(netId));
 }
 
+// The MAC address takes the key's first bytes, as the program reads it from the frame.
+jint nativeSetHotspotDevice(JNIEnv* env, jclass, jbyteArray mac, jint uid) {
+    if (env->GetArrayLength(mac) != ETH_ALEN) return EINVAL;
+    uint64_t key = 0;
+    env->GetByteArrayRegion(mac, 0, ETH_ALEN, reinterpret_cast<jbyte*>(&key));
+    return setOrUnset(gDevices, key, static_cast<uint32_t>(uid));
+}
+
 const JNINativeMethod kMethods[] = {
         {"nativeAttachHotspot", "(I)I", reinterpret_cast<void*>(nativeAttachHotspot)},
         {"nativeDetachHotspot", "(I)I", reinterpret_cast<void*>(nativeDetachHotspot)},
         {"nativeSetHotspotUpstream", "(I)I", reinterpret_cast<void*>(nativeSetHotspotUpstream)},
+        {"nativeSetHotspotDevice", "([BI)I", reinterpret_cast<void*>(nativeSetHotspotDevice)},
 };
 
 }  // namespace
 
 bool initHotspot() {
-    return init(gUpstream, FW_MAP_PATH("hotspot_upstream"));
+    return init(gUpstream, FW_MAP_PATH("hotspot_upstream")) &&
+           init(gDevices, FW_MAP_PATH("hotspot_devices"));
+}
+
+void clearHotspot() {
+    clear(gDevices);
 }
 
 int registerHotspot(JNIEnv* env, jclass cls) {

@@ -118,6 +118,7 @@ class FirewallAppTest {
         firewall.setAppRules(testPackage, userId, 0)
         if (userId == UserHandle.USER_SYSTEM) {
             firewall.setAppRules(IFirewall.HOTSPOT_PACKAGE, userId, 0)
+            firewall.forgetHotspotDevice(TEST_DEVICE)
         }
         firewall.setPause(testPackage, userId, false, 0)
         firewall.setSchedule(testPackage, userId, 0, 0, 0)
@@ -694,6 +695,25 @@ class FirewallAppTest {
         }
 
     @Test
+    fun aHotspotDeviceWithRulesOpensFromTheHotspotPageAndIsForgotten() {
+        firewall.setAppRules(IFirewall.DEVICE_PREFIX + TEST_DEVICE, userId, IFirewall.BLOCK_WIFI)
+        onPage("Hotspot") {
+            scrollTo(text("hotspot_devices"))
+            scrollTo(TEST_DEVICE).click()
+            scrollTo(text("hotspot_device_mac"))
+            scrollTo(text("forget_hotspot_device")).click()
+            find(text("forget_hotspot_device_text"))
+            // The dialog's button, which the row behind it shares its text with.
+            val dialog =
+                checkNotNull(find(text("forget_hotspot_device_title")).parent) { "No dialog" }
+            checkNotNull(dialog.findObject(By.text(text("forget_hotspot_device")))) { "No button" }
+                .click()
+            waitUntil { firewall.hotspotDevices.none { it.mac == TEST_DEVICE } }
+            assertTrue(device.wait(Until.gone(By.text(text("hotspot_device_mac"))), TIMEOUT))
+        }
+    }
+
+    @Test
     fun aGroupIsAddedByNameAndOpensOnItsPage() =
         onPage("AppList") {
             scrollTo(text("groups_title")).click()
@@ -1185,6 +1205,8 @@ class FirewallAppTest {
         const val NOT_AN_EXPORT = "not-firewall-rules.xml"
         const val LIST_FILE = "firewall-test-list.txt"
         const val GROUP = "Firewall test group"
+        // A device on no hotspot, with rules of its own.
+        const val TEST_DEVICE = "02:00:00:00:00:42"
         const val SENT_TO = "192.0.2.1"
         const val RENAMED_GROUP = "Firewall test group, renamed"
         val TEST_GROUPS = setOf(GROUP, RENAMED_GROUP)

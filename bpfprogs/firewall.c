@@ -245,32 +245,31 @@ static __always_inline bool user_rules_drop(__u32 uid, __u32 rules, __u32 uflags
     return false;
 }
 
-// Whether a packet out, its IP header at l3, is dropped, and the counter it's dropped under, with
-// the user's flags if it read them. Incoming allows let the app's replies through if wanted.
-static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 l3, bool replies, __u32 uid,
-                                        __u32 rules, const struct fw_path* path,
-                                        struct l4_info* info, bool* parsed, __u32* counter,
-                                        __u32* user_flags) {
+// What an app's own rules decide for a packet out: 1 drops it, under the counter, 0 lets it
+// through, and -1 leaves it to the rules after them. Incoming allows let the app's replies through
+// if wanted.
+static __always_inline int own_verdict(__u32 uid, __u32 rules, bool replies, bool parsed,
+                                       const struct fw_path* path, struct l4_info* info,
+                                       __u32* counter) {
     bool blocked_all = rules & FW_RULE_BLOCK_ALL;
     // Apps kept off loopback are blocked on it as on a network.
     bool blocked_here = path->ifindex == 1 || network_blocked(uid, rules, path);
     *counter = blocked_all ? FW_C_EGRESS_DROP_ALL : FW_C_EGRESS_DROP_TRANSPORT;
-    *parsed = parse_l4_at(skb, l3, info, true);
-    if ((blocked_all || blocked_here) && !(rules & FW_SCOPE_ALLOWS)) return true;
-    if (!*parsed) return blocked_all || blocked_here;
+    if ((blocked_all || blocked_here) && !(rules & FW_SCOPE_ALLOWS)) return 1;
+    if (!parsed) return blocked_all || blocked_here ? 1 : -1;
     if ((rules & FW_RULE_NO_LAN) && lan_via_vpn(path->ifindex, info)) {
         *counter = FW_C_EGRESS_DROP_LAN;
-        return true;
+        return 1;
     }
     if ((rules & FW_SCOPE_ALLOWS) && scope_allows(uid, rules, info, path)) {
         count(FW_C_ALLOWED_BY_RULE);
-        return false;
+        return 0;
     }
     if (replies && (rules & FW_SCOPE_INCOMING_ALLOWS) && incoming_replies(uid, info, path)) {
         count(FW_C_ALLOWED_BY_RULE);
-        return false;
+        return 0;
     }
-    if (blocked_all || blocked_here) return true;
+    if (blocked_all || blocked_here) return 1;
 
     // An app's own DNS, plain or over TLS or QUIC. With domain rules, the app looks names up
     // through Android's resolver instead, which checks them. Known DNS-over-HTTPS servers count
@@ -280,13 +279,25 @@ static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 l3, bool re
     if ((rules & (FW_RULE_BLOCK_DNS | FW_SCOPE_DOMAINS)) &&
         (dns || listed(&ip4_block, &ip6_block, FW_DOH_SCOPE, 0, info, path))) {
         *counter = (rules & FW_RULE_BLOCK_DNS) ? FW_C_EGRESS_DROP_DNS : FW_C_EGRESS_DROP_DOMAIN;
-        return true;
+        return 1;
     }
-    if ((rules & FW_SCOPE_BLOCKS) && scope_blocks(uid, rules, info, path, counter)) return true;
+    if ((rules & FW_SCOPE_BLOCKS) && scope_blocks(uid, rules, info, path, counter)) return 1;
+    return -1;
+}
 
+// Whether a packet out is dropped, and the counter it's dropped under, with the user's flags if it
+// read them.
+static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 rules,
+                                        const struct fw_path* path, struct l4_info* info,
+                                        bool* parsed, __u32* counter, __u32* user_flags) {
+    *parsed = parse_l4(skb, info, true);
+    int own = own_verdict(uid, rules, true, *parsed, path, info, counter);
+    if (own >= 0) return own;
+    if (!*parsed) return false;
+    bool dns = info->port == 53 || info->port == 853;
     __u32 uflags = user_flags_of(uid / AID_USER_OFFSET);
     *user_flags = uflags;
-    return user_rules_drop(uid, rules, uflags, dns, replies, info, path, counter);
+    return user_rules_drop(uid, rules, uflags, dns, true, info, path, counter);
 }
 
 // Whether the app's own DNS to a server on the phone is refused: domain rules keep it off loopback
@@ -332,7 +343,7 @@ int egress(struct __sk_buff* skb) {
     bool parsed = false;
     __u32 counter;
     __u32 uflags = FW_FLAGS_UNREAD;
-    bool drop = egress_drop(skb, 0, true, uid, rules, &path, &info, &parsed, &counter, &uflags);
+    bool drop = egress_drop(skb, uid, rules, &path, &info, &parsed, &counter, &uflags);
     if (drop) {
         count(counter);
     } else {

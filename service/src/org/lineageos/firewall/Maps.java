@@ -6,6 +6,7 @@
 package org.lineageos.firewall;
 
 import android.net.InetAddresses;
+import android.net.MacAddress;
 import android.os.SystemProperties;
 import android.system.Os;
 import android.system.OsConstants;
@@ -87,6 +88,8 @@ interface Maps {
     int detachHotspot(String iface);
     /** The netd network id of Tethering's upstream, for the hotspot program; 0 is none. */
     int setHotspotUpstream(int netId);
+    /** The uid a hotspot device's own rules are kept under, by its MAC address; 0 deletes. */
+    int setHotspotDevice(String mac, int uid);
 
     /**
      * Where an app's refusals go, which way and the far end, or with its user's log on where
@@ -237,6 +240,10 @@ interface Maps {
         }
         @Override public int setHotspotUpstream(int netId) {
             return FirewallMaps.nativeSetHotspotUpstream(netId);
+        }
+        @Override public int setHotspotDevice(String mac, int uid) {
+            return FirewallMaps.nativeSetHotspotDevice(MacAddress.fromString(mac).toByteArray(),
+                    uid);
         }
     };
 

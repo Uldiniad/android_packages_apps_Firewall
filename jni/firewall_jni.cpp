@@ -113,6 +113,7 @@ void nativeClearRules(JNIEnv*, jclass) {
     clearSpecificNetworks();
     clearLocalNetwork();
     clearBlockLists();
+    clearHotspot();
 }
 
 jint nativeSetUid(JNIEnv*, jclass, jint uid, jint rules) {

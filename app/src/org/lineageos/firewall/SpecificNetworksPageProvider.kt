@@ -118,10 +118,12 @@ private fun SpecificNetworksPage(packageName: String, userId: Int) {
             packageName.startsWith(IFirewall.GROUP_PREFIX) ->
                 R.string.specific_networks_footer_group
             packageName == IFirewall.HOTSPOT_PACKAGE -> R.string.specific_networks_footer_hotspot
+            packageName.startsWith(IFirewall.DEVICE_PREFIX) ->
+                R.string.specific_networks_footer_device
             else -> null
         }
     if (footer != null) {
-        // A group or the hotspot's devices have no app to head the page.
+        // A group or hotspot devices have no app to head the page.
         RegularScaffold(title = stringResource(R.string.specific_networks)) {
             content()
             Footer(stringResource(footer))

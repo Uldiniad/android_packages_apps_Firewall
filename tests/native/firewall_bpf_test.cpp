@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/pkt_cls.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
@@ -37,6 +38,7 @@ using android::bpf::retrieveProgram;
 using android::bpf::writeToMapEntry;
 using android::firewall::allowsLookup;
 using android::firewall::allowsAnswer;
+using android::firewall::tetheringClientUid;
 using android::net::TunInterface;
 
 namespace {
@@ -76,6 +78,8 @@ const std::vector<std::string> kMaps = {
         "list_ip6",
         "list_files",
         "hotspot_upstream",
+        "hotspot_devices",
+        "hotspot_addresses",
 };
 const std::vector<std::pair<std::string, bpf_attach_type>> kProgs = {
         {"egress", BPF_CGROUP_INET_EGRESS}, {"ingress", BPF_CGROUP_INET_INGRESS},
@@ -150,6 +154,8 @@ class FirewallBpfTest : public ::testing::Test {
                      "scope_lists",
                      "list_ip4",
                      "list_files",
+                     "hotspot_devices",
+                     "hotspot_addresses",
              }) {
             mMaps[name].reset(mapRetrieveRW(mapPath(name).c_str()));
             ASSERT_LE(0, mMaps[name].get()) << name << ": " << strerror(errno);
@@ -168,6 +174,10 @@ class FirewallBpfTest : public ::testing::Test {
                 deleteMapEntry(mMaps[map], key.data());
             }
         }
+        // What the phone's own rules had there, as the main user's hotspot entries do.
+        for (auto& [map, entry] : mOriginals) {
+            writeToMapEntry(mMaps[map], entry.first.data(), entry.second.data(), BPF_ANY);
+        }
         mTun.destroy();
     }
 
@@ -179,6 +189,17 @@ class FirewallBpfTest : public ::testing::Test {
 
     template <typename K, typename V>
     void put(const std::string& map, const K& key, const V& value) {
+        const auto* bytes = reinterpret_cast<const uint8_t*>(&key);
+        std::vector<uint8_t> keyBytes(bytes, bytes + sizeof(key));
+        V original;
+        bool saved = std::any_of(mOriginals.begin(), mOriginals.end(), [&](const auto& entry) {
+            return entry.first == map && entry.second.first == keyBytes;
+        });
+        if (!saved && findMapEntry(mMaps[map], &key, &original) == 0) {
+            const auto* old = reinterpret_cast<const uint8_t*>(&original);
+            mOriginals.emplace_back(
+                    map, std::make_pair(keyBytes, std::vector<uint8_t>(old, old + sizeof(V))));
+        }
         ASSERT_EQ(0, writeToMapEntry(mMaps[map], &key, &value, BPF_ANY)) << map;
         forget(map, key);
     }
@@ -422,6 +443,8 @@ class FirewallBpfTest : public ::testing::Test {
     bool mListFile = false;
     std::map<std::string, unique_fd> mMaps;
     std::vector<std::pair<std::string, std::vector<uint8_t>>> mWritten;
+    std::vector<std::pair<std::string, std::pair<std::vector<uint8_t>, std::vector<uint8_t>>>>
+            mOriginals;
     TunInterface mTun;
 };
 
@@ -694,6 +717,103 @@ TEST_F(FirewallBpfTest, HotspotDevicesLookupsFollowTheRulesForAllApps) {
     EXPECT_FALSE(allowsLookup(kDnsmasq, kTestNetId, "www.blocked.test"));
     EXPECT_TRUE(allowsLookup(kDnsmasq, kTestNetId, "example.test"));
     EXPECT_TRUE(allowsLookup(kOtherSystemUid, kTestNetId, "www.blocked.test"));
+}
+
+// A uid for a hotspot device's rules that the phone's own devices are unlikely to have.
+constexpr uint32_t kTestDevice = FW_HOTSPOT_DEVICE_UID_START + FW_HOTSPOT_DEVICES - 1;
+
+TEST_F(FirewallBpfTest, HotspotDevicesLookUpUnderTheirOwnRulesThenTheHotspots) {
+    put("uid_rules", static_cast<uint32_t>(AID_DNS_TETHER), FW_SCOPE_DOMAINS);
+    putDomain(AID_DNS_TETHER, "both.hotspot.test", FW_DOMAIN_BLOCK);
+    putDomain(AID_DNS_TETHER, "all.hotspot.test", FW_DOMAIN_BLOCK);
+    put("uid_rules", kTestDevice, FW_SCOPE_DOMAINS);
+    putDomain(kTestDevice, "both.hotspot.test", FW_DOMAIN_ALLOW);
+    putDomain(kTestDevice, "own.hotspot.test", FW_DOMAIN_BLOCK);
+    EXPECT_TRUE(allowsLookup(kTestDevice, kTestNetId, "both.hotspot.test"));
+    EXPECT_FALSE(allowsLookup(kTestDevice, kTestNetId, "own.hotspot.test"));
+    EXPECT_FALSE(allowsLookup(kTestDevice, kTestNetId, "all.hotspot.test"));
+    EXPECT_TRUE(allowsLookup(kTestDevice, kTestNetId, "other.hotspot.test"));
+    // Devices without rules of their own look names up as dnsmasq.
+    EXPECT_FALSE(allowsLookup(AID_DNS_TETHER, kTestNetId, "both.hotspot.test"));
+    // The hotspot's switches come after the device's allow rules, and stop the rest.
+    put("uid_rules", static_cast<uint32_t>(AID_DNS_TETHER), FW_RULE_BLOCK_ALL);
+    EXPECT_TRUE(allowsLookup(kTestDevice, kTestNetId, "both.hotspot.test"));
+    EXPECT_FALSE(allowsLookup(kTestDevice, kTestNetId, "other.hotspot.test"));
+}
+
+TEST_F(FirewallBpfTest, DnsmasqLearnsWhichHotspotDeviceALookupIsFor) {
+    fw_hotspot_address key = {};
+    key.addr[10] = key.addr[11] = 0xff;
+    inet_pton(AF_INET, "192.0.2.99", &key.addr[12]);
+    put("hotspot_addresses", key, kTestDevice);
+    in6_addr address;
+    memcpy(&address, key.addr, sizeof(address));
+    EXPECT_EQ(kTestDevice, tetheringClientUid(&address));
+    inet_pton(AF_INET6, "2001:db8::99", &address);
+    EXPECT_EQ(static_cast<uid_t>(-1), tetheringClientUid(&address));
+}
+
+// A TCP SYN in an Ethernet frame from the MAC address and 192.0.2.99 to the address, sent to the
+// phone, whose test runs see an all-zero address.
+std::vector<uint8_t> hotspotFrame(uint8_t lastMacByte, const char* to) {
+    std::vector<uint8_t> frame(54);
+    uint8_t source[] = {0x02, 0, 0, 0, 0, lastMacByte};
+    memcpy(&frame[6], source, sizeof(source));
+    frame[12] = 0x08;  // IPv4
+    frame[14] = 0x45;
+    frame[17] = 40;  // IP total length
+    frame[22] = 64;
+    frame[23] = IPPROTO_TCP;
+    inet_pton(AF_INET, "192.0.2.99", &frame[26]);
+    inet_pton(AF_INET, to, &frame[30]);
+    frame[34] = 40000 >> 8;
+    frame[35] = 40000 & 0xff;
+    frame[36] = 443 >> 8;
+    frame[37] = 443 & 0xff;
+    frame[46] = 0x50;  // TCP header length
+    frame[47] = 0x02;  // SYN
+    return frame;
+}
+
+// What the hotspot program returns for the frame.
+int hotspotVerdict(const std::vector<uint8_t>& frame) {
+    unique_fd prog(retrieveProgram(progPath("hotspot").c_str()));
+    bpf_attr attr = {};
+    attr.test.prog_fd = prog.get();
+    attr.test.data_in = reinterpret_cast<uint64_t>(frame.data());
+    attr.test.data_size_in = frame.size();
+    attr.test.repeat = 1;
+    EXPECT_EQ(0, bpf(BPF_PROG_TEST_RUN, &attr)) << strerror(errno);
+    return static_cast<int>(attr.test.retval);
+}
+
+TEST_F(FirewallBpfTest, HotspotTrafficFollowsADevicesRulesThenTheHotspots) {
+    uint64_t mac = 0;
+    uint8_t device[] = {0x02, 0, 0, 0, 0, 0x99};
+    memcpy(&mac, device, sizeof(device));
+    put("hotspot_devices", mac, kTestDevice);
+    put("uid_rules", kTestDevice, FW_SCOPE_IP_ALLOWS | FW_SCOPE_IP_BLOCKS);
+    putIp4("ip4_allow", kTestDevice, "198.51.100.2", 32);
+    putIp4("ip4_block", kTestDevice, "198.51.100.1", 32);
+    put("uid_rules", static_cast<uint32_t>(AID_DNS_TETHER), FW_SCOPE_IP_BLOCKS);
+    putIp4("ip4_block", AID_DNS_TETHER, "198.51.100.2", 32);
+    putIp4("ip4_block", AID_DNS_TETHER, "198.51.100.3", 32);
+
+    EXPECT_EQ(TC_ACT_SHOT, hotspotVerdict(hotspotFrame(0x99, "198.51.100.1")));
+    EXPECT_EQ(TC_ACT_UNSPEC, hotspotVerdict(hotspotFrame(0x99, "198.51.100.2")));
+    EXPECT_EQ(TC_ACT_SHOT, hotspotVerdict(hotspotFrame(0x99, "198.51.100.3")));
+    EXPECT_EQ(TC_ACT_UNSPEC, hotspotVerdict(hotspotFrame(0x99, "198.51.100.4")));
+    // Another device has no rules of its own, so the hotspot's decide.
+    EXPECT_EQ(TC_ACT_SHOT, hotspotVerdict(hotspotFrame(0x98, "198.51.100.2")));
+
+    // The device's address, for dnsmasq to make its lookups as its.
+    fw_hotspot_address key = {};
+    key.addr[10] = key.addr[11] = 0xff;
+    inet_pton(AF_INET, "192.0.2.99", &key.addr[12]);
+    forget("hotspot_addresses", key);
+    uint32_t uid = 0;
+    ASSERT_EQ(0, findMapEntry(mMaps["hotspot_addresses"], &key, &uid));
+    EXPECT_EQ(kTestDevice, uid);
 }
 
 TEST_F(FirewallBpfTest, KnownDohServersCantBeLookedUpUnderDomainRules) {

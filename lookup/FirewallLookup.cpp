@@ -35,6 +35,7 @@ struct LookupMaps {
     BpfMapRO<uint32_t, fw_limits> scopeLimits;
     BpfMapRO<fw_scope_domain_key, uint64_t> domainRules;
     BpfMap<fw_learned_key, uint32_t> learned;
+    BpfMapRO<fw_hotspot_address, uint32_t> hotspotAddresses;
     bool ready = false;
 };
 
@@ -48,7 +49,8 @@ LookupMaps& lookupMaps() {
                    m->netTransport.init(FW_MAP_PATH("net_transport")).ok() &&
                    m->scopeLimits.init(FW_MAP_PATH("scope_limits")).ok() &&
                    m->domainRules.init(FW_MAP_PATH("domain_rules")).ok() &&
-                   m->learned.init(FW_MAP_PATH("learned")).ok();
+                   m->learned.init(FW_MAP_PATH("learned")).ok() &&
+                   m->hotspotAddresses.init(FW_MAP_PATH("hotspot_addresses")).ok();
         if (!m->ready) ALOGE("lookup maps unavailable");
         return m;
     }();
@@ -106,6 +108,30 @@ bool followsUserRules(uid_t uid) {
     return isAppUid(uid) || uid % AID_USER_OFFSET == AID_DNS_TETHER;
 }
 
+// A device on the phone's hotspot with rules of its own, whose lookups dnsmasq makes as its.
+bool isHotspotDevice(uid_t uid) {
+    return uid >= FW_HOTSPOT_DEVICE_UID_START &&
+           uid < FW_HOTSPOT_DEVICE_UID_START + FW_HOTSPOT_DEVICES;
+}
+
+// A uid whose own rules decide before its user's.
+struct Scope {
+    uint32_t uid;
+    uint32_t rules;
+};
+
+// The uid's own rules, and for a hotspot device then those for all the devices, kept on dnsmasq's
+// uid, each deciding in turn.
+std::vector<Scope> ownScopes(const LookupMaps& maps, uid_t uid) {
+    std::vector<Scope> scopes;
+    if (auto rules = maps.uidRules.readValue(uid); rules.ok()) scopes.push_back({uid, *rules});
+    if (isHotspotDevice(uid)) {
+        auto devices = maps.uidRules.readValue(AID_DNS_TETHER);
+        if (devices.ok()) scopes.push_back({AID_DNS_TETHER, *devices});
+    }
+    return scopes;
+}
+
 uint64_t networkOf(const LookupMaps& maps, unsigned netId) {
     auto bits = maps.netTransport.readValue(netId & FW_NET_ID_MASK);
     return bits.ok() ? *bits : 0;
@@ -115,27 +141,34 @@ uint64_t networkOf(const LookupMaps& maps, unsigned netId) {
 enum class Decision { kNone, kAppAllows, kAppBlocks, kUserAllows, kUserBlocks, kListBlocks };
 
 // Whether a list the app or its user subscribes to blocks the name.
-bool listsBlock(uid_t uid, uint32_t rules, uint32_t user, uint32_t userFlags,
+bool listsBlock(const std::vector<Scope>& scopes, uint32_t user, uint32_t userFlags,
                 const std::vector<uint64_t>& suffixes) {
-    if (rules & FW_RULE_NO_LISTS) return false;
     uint64_t slots = 0;
-    if (rules & FW_SCOPE_LISTS) slots |= listSlots(uid);
+    for (const Scope& scope : scopes) {
+        if (scope.rules & FW_RULE_NO_LISTS) return false;
+        if (scope.rules & FW_SCOPE_LISTS) slots |= listSlots(scope.uid);
+    }
     if (userFlags & FW_SCOPE_LISTS) slots |= listSlots(FW_USER_SCOPE | user);
     return slots && listsHold(slots, suffixes);
 }
 
-Decision decide(const LookupMaps& maps, uid_t uid, const base::Result<uint32_t>& rules,
-                uint64_t net, const std::vector<uint64_t>& suffixes) {
-    if (rules.ok() && (*rules & FW_SCOPE_DOMAINS)) {
-        uint64_t match = domainMatch(maps, uid, suffixes);
-        LimitsOn on = limitsOn(maps, uid, *rules, net);
-        if (fw_domain_bits_on(match, on.allows) & FW_DOMAIN_ALLOW) return Decision::kAppAllows;
-        if ((fw_domain_bits_on(match, on.blocks) & FW_DOMAIN_BLOCK) || dohServer(maps, suffixes)) {
-            return Decision::kAppBlocks;
-        }
-    } else if (!rules.ok() && !followsUserRules(uid)) {
-        return Decision::kNone;
+// What a scope's own domain rules say of the name; kNone leaves it to the next.
+Decision ownDecision(const LookupMaps& maps, const Scope& scope, uint64_t net,
+                     const std::vector<uint64_t>& suffixes) {
+    if (!(scope.rules & FW_SCOPE_DOMAINS)) return Decision::kNone;
+    uint64_t match = domainMatch(maps, scope.uid, suffixes);
+    LimitsOn on = limitsOn(maps, scope.uid, scope.rules, net);
+    if (fw_domain_bits_on(match, on.allows) & FW_DOMAIN_ALLOW) return Decision::kAppAllows;
+    if ((fw_domain_bits_on(match, on.blocks) & FW_DOMAIN_BLOCK) || dohServer(maps, suffixes)) {
+        return Decision::kAppBlocks;
     }
+    return Decision::kNone;
+}
+
+// What the user's domain rules and the lists say of the name, after the uid's own rules.
+Decision userDecision(const LookupMaps& maps, uid_t uid, const std::vector<Scope>& scopes,
+                      uint64_t net, const std::vector<uint64_t>& suffixes) {
+    if (scopes.empty() && !followsUserRules(uid)) return Decision::kNone;
     uint32_t user = uid / AID_USER_OFFSET;
     auto flags = maps.userFlags.readValue(user);
     uint32_t userFlags = flags.ok() ? *flags : 0;
@@ -148,10 +181,17 @@ Decision decide(const LookupMaps& maps, uid_t uid, const base::Result<uint32_t>&
             return Decision::kUserBlocks;
         }
     }
-    if (listsBlock(uid, rules.ok() ? *rules : 0, user, userFlags, suffixes)) {
-        return Decision::kListBlocks;
-    }
+    if (listsBlock(scopes, user, userFlags, suffixes)) return Decision::kListBlocks;
     return Decision::kNone;
+}
+
+Decision decide(const LookupMaps& maps, uid_t uid, const std::vector<Scope>& scopes, uint64_t net,
+                const std::vector<uint64_t>& suffixes) {
+    for (const Scope& scope : scopes) {
+        Decision own = ownDecision(maps, scope, net, suffixes);
+        if (own != Decision::kNone) return own;
+    }
+    return userDecision(maps, uid, scopes, net, suffixes);
 }
 
 bool allows(Decision decision) {
@@ -165,14 +205,16 @@ bool blocks(Decision decision) {
 
 // Lets the app reach the addresses of an answer one of whose names its allow rules cover, and
 // keeps it from them on the ports its block rules name.
-void learn(LookupMaps& maps, uid_t uid, const base::Result<uint32_t>& rules,
+void learn(LookupMaps& maps, uid_t uid, const std::vector<Scope>& own,
            const std::vector<std::vector<uint64_t>>& names, const in6_addr* addresses,
            size_t count) {
     if (count == 0) return;
     constexpr uint32_t kLearned = FW_SCOPE_LEARNED | FW_SCOPE_LEARNED_BLOCKS;
     std::vector<std::pair<uint32_t, uint32_t>> scopes;
-    if (rules.ok() && (*rules & kLearned)) scopes.emplace_back(uid, *rules);
-    if (rules.ok() || followsUserRules(uid)) {
+    for (const Scope& scope : own) {
+        if (scope.rules & kLearned) scopes.emplace_back(scope.uid, scope.rules);
+    }
+    if (!own.empty() || followsUserRules(uid)) {
         uint32_t user = uid / AID_USER_OFFSET;
         auto flags = maps.userFlags.readValue(user);
         if (flags.ok() && (*flags & kLearned)) scopes.emplace_back(FW_USER_SCOPE | user, *flags);
@@ -218,14 +260,17 @@ bool allowsLookup(uid_t uid, unsigned netId, const char* name) {
     std::vector<uint64_t> suffixes;
     if (name != nullptr) suffixes = fw_domain_suffix_hashes(name);
     uint64_t net = networkOf(maps, netId);
-    auto rules = maps.uidRules.readValue(uid);
-    Decision decision = decide(maps, uid, rules, net, suffixes);
-    if (decision == Decision::kAppAllows) return true;
-    if (rules.ok() && ((*rules & (FW_RULE_BLOCK_ALL | FW_RULE_BLOCK_DNS)) ||
-                       networkBlocked(maps, uid, *rules, net))) {
-        return false;
+    std::vector<Scope> scopes = ownScopes(maps, uid);
+    // Each scope's allow rules come before its switches, and both before the next scope's.
+    for (const Scope& scope : scopes) {
+        Decision own = ownDecision(maps, scope, net, suffixes);
+        if (own == Decision::kAppAllows) return true;
+        if ((scope.rules & (FW_RULE_BLOCK_ALL | FW_RULE_BLOCK_DNS)) ||
+            networkBlocked(maps, scope.uid, scope.rules, net) || own == Decision::kAppBlocks) {
+            return false;
+        }
     }
-    return !blocks(decision);
+    return !blocks(userDecision(maps, uid, scopes, net, suffixes));
 }
 
 bool allowsAnswer(uid_t uid, unsigned netId, const char* name, const char* const* cnames,
@@ -233,19 +278,28 @@ bool allowsAnswer(uid_t uid, unsigned netId, const char* name, const char* const
     LookupMaps& maps = lookupMaps();
     if (!maps.ready || name == nullptr || uid == AID_ROOT || uid == AID_SYSTEM) return true;
     uint64_t net = networkOf(maps, netId);
-    auto rules = maps.uidRules.readValue(uid);
+    std::vector<Scope> scopes = ownScopes(maps, uid);
     std::vector<std::vector<uint64_t>> names = {fw_domain_suffix_hashes(name)};
     for (size_t i = 0; i < cnameCount; i++) names.push_back(fw_domain_suffix_hashes(cnames[i]));
     bool allowed = false;
     bool blocked = false;
     for (const std::vector<uint64_t>& suffixes : names) {
-        Decision decision = decide(maps, uid, rules, net, suffixes);
+        Decision decision = decide(maps, uid, scopes, net, suffixes);
         allowed |= allows(decision);
         blocked |= blocks(decision);
     }
     if (blocked && !allowed) return false;
-    learn(maps, uid, rules, names, addresses, count);
+    learn(maps, uid, scopes, names, addresses, count);
     return true;
+}
+
+uid_t tetheringClientUid(const in6_addr* address) {
+    const LookupMaps& maps = lookupMaps();
+    if (!maps.ready) return static_cast<uid_t>(-1);
+    fw_hotspot_address key;
+    memcpy(key.addr, address, sizeof(key.addr));
+    auto uid = maps.hotspotAddresses.readValue(key);
+    return uid.ok() ? *uid : static_cast<uid_t>(-1);
 }
 
 }  // namespace android::firewall

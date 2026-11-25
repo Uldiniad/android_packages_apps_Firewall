@@ -3,7 +3,7 @@
      SPDX-FileCopyrightText: The LineageOS Project
      SPDX-License-Identifier: Apache-2.0
 -->
-<resources>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
     <!-- Row among the apps, and title of its page: the devices on the phone's hotspot or tethering, as Settings' data usage calls them. -->
     <string name="hotspot_title">Hotspot &amp; tethering</string>
     <string name="hotspot_footer">These rules apply to devices on this phone\'s hotspot or tethered to it, and to the names they look up. Allow rules win over block rules, and these rules over the rules for all apps.</string>
@@ -11,5 +11,18 @@
     <string name="no_hotspot_rules">No rules for these devices</string>
     <string name="hotspot_metered_summary">Such as mobile data and hotspots</string>
     <string name="specific_networks_summary_hotspot">Choose for each Wi\u2011Fi network and SIM</string>
+    <string name="no_device_rules">No rules for this device</string>
+    <string name="specific_networks_footer_device">A choice for a network wins over the device\'s other switches for it, like Wi\u2011Fi or metered networks.</string>
+    <!-- Heading of the devices on the hotspot page: those on the hotspot now, and those with rules of their own. -->
+    <string name="hotspot_devices">Devices</string>
+    <string name="no_hotspot_devices">No devices</string>
+    <!-- A device's summary while it's on the hotspot, with its rules' summary, such as "Allowed". -->
+    <string name="hotspot_device_connected">Connected · <xliff:g id="rules" example="Allowed">%1$s</xliff:g></string>
+    <string name="hotspot_device_mac">MAC address</string>
+    <string name="hotspot_device_footer">These rules apply to this device first, then the rules for hotspot devices and those for all apps. Allow rules win over block rules.</string>
+    <!-- Deletes a device's own rules, so it follows the rules for hotspot devices again. -->
+    <string name="forget_hotspot_device">Forget device</string>
+    <string name="forget_hotspot_device_title">Forget this device?</string>
+    <string name="forget_hotspot_device_text">Its own rules are deleted, and it follows the rules for hotspot devices again.</string>
     <string name="specific_networks_footer_hotspot">A choice for a network wins over the devices\' other switches for it, like Wi\u2011Fi or metered networks.</string>
 </resources>

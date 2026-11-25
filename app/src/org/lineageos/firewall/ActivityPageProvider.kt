@@ -53,6 +53,7 @@ import com.android.settingslib.spa.widget.ui.LazyCategory
 import com.android.settingslib.spa.widget.ui.SettingsBody
 import com.android.settingslib.spaprivileged.model.app.rememberAppRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -135,6 +136,12 @@ private fun ActivityList(
             value = withContext(Dispatchers.IO) { context.withApps(store.entries(allowed, SHOWN)) }
         }
     val size by produceState(0L, version) { value = withContext(Dispatchers.IO) { store.size() } }
+    // Hotspot devices with rules of their own make entries in the main user's log, by their uids.
+    val devices by
+        remember(userId) {
+                if (userId == UserHandle.USER_SYSTEM) hotspotDevices() else flowOf(emptyList())
+            }
+            .collectAsStateWithLifecycle(emptyList())
     val shown =
         entries?.filter { (entry, app) ->
             val query = searchQuery()
@@ -176,7 +183,7 @@ private fun ActivityList(
         },
     ) { index ->
         val (entry, app) = shown[index]
-        ActivityRow(entry, app)
+        ActivityRow(entry, app, devices.find { it.uid != 0 && it.uid == entry.uid })
     }
 }
 
@@ -200,16 +207,18 @@ private fun Context.withApps(
 }
 
 @Composable
-private fun ActivityRow(entry: ActivityStore.Entry, app: ApplicationInfo?) {
+private fun ActivityRow(entry: ActivityStore.Entry, app: ApplicationInfo?, device: HotspotDevice?) {
     val context = LocalContext.current
     val repository = rememberAppRepository()
-    val tethering = UserHandle.getAppId(entry.uid) == DNS_TETHER_UID
+    val tethering = device != null || UserHandle.getAppId(entry.uid) == DNS_TETHER_UID
     val label =
         app?.let { repository.produceLabel(it).value }
+            ?: device?.let { it.name ?: it.mac }
             ?: if (tethering) stringResource(R.string.activity_tethering) else entry.uid.toString()
     val icon = app?.let { repository.produceIcon(it).value }
     val open =
         app?.let { AppRulesPageProvider.navigator(it) }
+            ?: device?.let { HotspotDevicePageProvider.navigator(it.mac) }
             ?: if (tethering) HotspotPageProvider.navigator() else null
     Preference(
         object : PreferenceModel {

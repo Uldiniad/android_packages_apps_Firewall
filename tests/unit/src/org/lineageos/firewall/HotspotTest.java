@@ -8,6 +8,8 @@ package org.lineageos.firewall;
 import static android.net.ConnectivityManager.FIREWALL_CHAIN_OEM_DENY_1;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -62,6 +64,35 @@ public class HotspotTest extends ServiceTestBase {
                 mMaps.uids.get(Process.DNS_TETHER_UID) & FirewallMaps.BLOCK_ALL);
         verify(mConnectivity, never()).setUidFirewallRule(eq(FIREWALL_CHAIN_OEM_DENY_1),
                 eq(Process.DNS_TETHER_UID), anyInt());
+    }
+
+    @Test
+    public void aDevicesRulesGetAUidTheProgramKnowsByItsMacUntilItsForgotten() throws Exception {
+        String mac = "02:00:00:00:00:01";
+        FirewallService service = start();
+        service.setAppRulesInternal(IFirewall.DEVICE_PREFIX + mac, 0, FirewallMaps.BLOCK_ALL);
+        int uid = mMaps.hotspotDevices.get(mac);
+        assertTrue(Hotspot.isDeviceUid(uid));
+        assertEquals(FirewallMaps.BLOCK_ALL, mMaps.uids.get(uid) & FirewallMaps.BLOCK_ALL);
+        verify(mConnectivity, never()).setUidFirewallRule(eq(FIREWALL_CHAIN_OEM_DENY_1),
+                eq(uid), anyInt());
+        HotspotDevice[] devices = service.feature(Hotspot.class).getHotspotDevicesInternal();
+        assertEquals(1, devices.length);
+        assertEquals(mac, devices[0].mac);
+        assertEquals(uid, devices[0].uid);
+        assertFalse(devices[0].connected);
+
+        // The same uid after a restart, for the addresses the program learned under it.
+        awaitSaved(service, saved -> saved.getAppRulesInternal(IFirewall.DEVICE_PREFIX + mac, 0)
+                == FirewallMaps.BLOCK_ALL);
+        mMaps.clearRules();
+        service = start();
+        assertEquals(uid, (int) mMaps.hotspotDevices.get(mac));
+
+        service.feature(Hotspot.class).forgetHotspotDeviceInternal(mac);
+        assertTrue(mMaps.hotspotDevices.isEmpty());
+        assertFalse(mMaps.uids.containsKey(uid));
+        assertEquals(0, service.feature(Hotspot.class).getHotspotDevicesInternal().length);
     }
 
     @Test

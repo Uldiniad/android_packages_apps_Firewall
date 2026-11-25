@@ -131,6 +131,22 @@ public class HostChecks {
         }
     }
 
+    /**
+     * A device tethered to the phone with rules of its own: its allow rule for the "address"
+     * argument wins over the hotspot's block, the hotspot's block keeps it from the "blocked"
+     * argument, and its own domain rule makes the "blockedName" argument not exist for it.
+     */
+    @Test
+    public void tetheredDeviceRules() throws Exception {
+        Bundle args = InstrumentationRegistry.getArguments();
+        try (TetheredDevice device = TetheredDevice.start()) {
+            assertTrue(device.connects(address(), port()));
+            assertFalse(device.connects(args.getString("blocked"), port()));
+            assertEquals(Firewall.NXDOMAIN, device.lookUp(args.getString("blockedName")).rcode());
+            assertEquals(0, device.lookUp("one.one.one.one").rcode());
+        }
+    }
+
     /** Android's resolver answers this app's lookup of the "host" argument, else example.org. */
     @Test
     public void looksUp() throws Exception {

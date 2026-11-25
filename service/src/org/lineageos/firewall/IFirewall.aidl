@@ -10,6 +10,7 @@ import org.lineageos.firewall.AppRule;
 import org.lineageos.firewall.FirewallGroup;
 import org.lineageos.firewall.FirewallList;
 import org.lineageos.firewall.FirewallRule;
+import org.lineageos.firewall.HotspotDevice;
 import org.lineageos.firewall.IFirewallListener;
 import org.lineageos.firewall.KnownNetwork;
 
@@ -57,6 +58,9 @@ interface IFirewall {
 
     /** The devices on the phone's hotspot go by this for their rules, in the main user. */
     const String HOTSPOT_PACKAGE = "hotspot:devices";
+
+    /** A device on the hotspot goes by this and its MAC address, for its own rules. */
+    const String DEVICE_PREFIX = "device:";
 
     /** What an ActivityEntry is: a connection, traffic out or in, one others opened, a lookup. */
     const int ACTIVITY_CONNECT = 0;
@@ -165,4 +169,9 @@ interface IFirewall {
     ActivityEntry[] takeActivity(int userId);
     /** Drops the user's entries the firewall app hasn't taken yet. */
     void clearActivity(int userId);
+
+    /** The devices on the phone's hotspot now, and those with rules of their own. */
+    HotspotDevice[] getHotspotDevices();
+    /** Drops the device's own rules. */
+    void forgetHotspotDevice(String mac);
 }

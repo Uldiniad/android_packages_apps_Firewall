@@ -944,6 +944,18 @@ public final class FirewallService extends SystemService {
         }
 
         @Override
+        public HotspotDevice[] getHotspotDevices() {
+            enforceUser(UserHandle.USER_SYSTEM);
+            return feature(Hotspot.class).getHotspotDevicesInternal();
+        }
+
+        @Override
+        public void forgetHotspotDevice(String mac) {
+            enforceUser(UserHandle.USER_SYSTEM);
+            runAsSystem(() -> feature(Hotspot.class).forgetHotspotDeviceInternal(mac));
+        }
+
+        @Override
         public FirewallGroup[] getGroups(int userId) {
             enforceUser(userId);
             return feature(Groups.class).getGroupsInternal(userId);

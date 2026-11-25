@@ -72,6 +72,9 @@ final class FirewallMaps {
     static final int LIMITS = 16;
     /** The ports of a scope's limits are port entries under the scope with this set. */
     static final int LIMIT_PORTS_SCOPE = 1 << 29;
+    /** The uids for hotspot devices' rules, as the BPF programs' FW_HOTSPOT_DEVICE_UID_START. */
+    static final int HOTSPOT_DEVICE_UID_START = 8000;
+    static final int HOTSPOT_DEVICES = 1024;
 
     static final String[] COUNTERS = {
             "egress_drop_all",
@@ -155,4 +158,5 @@ final class FirewallMaps {
     static native int nativeAttachHotspot(int ifindex);
     static native int nativeDetachHotspot(int ifindex);
     static native int nativeSetHotspotUpstream(int netId);
+    static native int nativeSetHotspotDevice(byte[] mac, int uid);
 }

@@ -27,17 +27,22 @@ import com.android.compatibility.common.util.PollingCheck;
 import com.android.testutils.TestableNetworkCallback;
 import com.android.testutils.TestableNetworkCallback.Event;
 
+import java.io.ByteArrayOutputStream;
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -200,6 +205,40 @@ final class Firewall {
             Log.i(TAG, "Sending to " + to + " over " + network + " failed", e);
             return false;
         }
+    }
+
+    /** The response code of a DNS answer for a name that doesn't exist. */
+    static final int NXDOMAIN = 3;
+
+    /** What a DNS server answered: its response code and how many answer records it gave. */
+    record DnsAnswer(int rcode, int answers) {}
+
+    /** A DNS query for the name's IPv4 addresses. */
+    static byte[] dnsQuery(String name) throws IOException {
+        ByteArrayOutputStream query = new ByteArrayOutputStream();
+        // An id, recursion desired and one question: the name's labels, then type A, class IN.
+        query.write(new byte[] {0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0});
+        for (String label : name.split("\\.")) {
+            query.write(label.length());
+            query.write(label.getBytes(StandardCharsets.US_ASCII));
+        }
+        query.write(new byte[] {0, 0, 1, 0, 1});
+        return query.toByteArray();
+    }
+
+    /** The interface's IPv4 address, once it has one. */
+    static Inet4Address ipv4Of(String iface, long timeoutMs) throws Exception {
+        long deadline = SystemClock.elapsedRealtime() + timeoutMs;
+        do {
+            NetworkInterface net = NetworkInterface.getByName(iface);
+            if (net != null) {
+                for (InetAddress address : Collections.list(net.getInetAddresses())) {
+                    if (address instanceof Inet4Address v4) return v4;
+                }
+            }
+            Thread.sleep(200);
+        } while (SystemClock.elapsedRealtime() < deadline);
+        throw new AssertionError(iface + " has no IPv4 address");
     }
 
     /** Whether a UDP packet to the port comes out of the tun within two seconds. */

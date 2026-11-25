@@ -100,6 +100,12 @@ bool isAppUid(uid_t uid) {
     return uid % AID_USER_OFFSET >= AID_APP_START;
 }
 
+// Apps follow their user's rules, and so do the devices on the phone's hotspot, whose lookups
+// dnsmasq makes.
+bool followsUserRules(uid_t uid) {
+    return isAppUid(uid) || uid % AID_USER_OFFSET == AID_DNS_TETHER;
+}
+
 uint64_t networkOf(const LookupMaps& maps, unsigned netId) {
     auto bits = maps.netTransport.readValue(netId & FW_NET_ID_MASK);
     return bits.ok() ? *bits : 0;
@@ -127,8 +133,7 @@ Decision decide(const LookupMaps& maps, uid_t uid, const base::Result<uint32_t>&
         if ((fw_domain_bits_on(match, on.blocks) & FW_DOMAIN_BLOCK) || dohServer(maps, suffixes)) {
             return Decision::kAppBlocks;
         }
-    } else if (!rules.ok() && !isAppUid(uid)) {
-        // Without rules of their own, only apps follow their user's rules.
+    } else if (!rules.ok() && !followsUserRules(uid)) {
         return Decision::kNone;
     }
     uint32_t user = uid / AID_USER_OFFSET;
@@ -167,7 +172,7 @@ void learn(LookupMaps& maps, uid_t uid, const base::Result<uint32_t>& rules,
     constexpr uint32_t kLearned = FW_SCOPE_LEARNED | FW_SCOPE_LEARNED_BLOCKS;
     std::vector<std::pair<uint32_t, uint32_t>> scopes;
     if (rules.ok() && (*rules & kLearned)) scopes.emplace_back(uid, *rules);
-    if (rules.ok() || isAppUid(uid)) {
+    if (rules.ok() || followsUserRules(uid)) {
         uint32_t user = uid / AID_USER_OFFSET;
         auto flags = maps.userFlags.readValue(user);
         if (flags.ok() && (*flags & kLearned)) scopes.emplace_back(FW_USER_SCOPE | user, *flags);

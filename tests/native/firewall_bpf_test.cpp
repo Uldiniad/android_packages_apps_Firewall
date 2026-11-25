@@ -21,6 +21,7 @@
 #include <android-base/unique_fd.h>
 #include <cutils/qtaguid.h>
 #include <gtest/gtest.h>
+#include <private/android_filesystem_config.h>
 
 #include "firewall.h"
 #include "firewall_domain.h"
@@ -675,6 +676,17 @@ TEST_F(FirewallBpfTest, LookupsFollowTheAppsRulesThenItsUsers) {
     setNetwork(FW_RULE_BLOCK_CELLULAR);
     setRules(FW_RULE_BLOCK_CELLULAR);
     EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+}
+
+TEST_F(FirewallBpfTest, HotspotDevicesLookupsFollowTheRulesForAllApps) {
+    // dnsmasq looks names up for the devices on the phone's hotspot.
+    constexpr uint32_t kDnsmasq = kTestUser * AID_USER_OFFSET + AID_DNS_TETHER;
+    constexpr uint32_t kOtherSystemUid = kTestUser * AID_USER_OFFSET + AID_DNS;
+    setUserFlags(FW_SCOPE_DOMAINS);
+    putDomain(kUserScope, "blocked.test", FW_DOMAIN_BLOCK | FW_DOMAIN_BLOCK_SUBDOMAINS);
+    EXPECT_FALSE(allowsLookup(kDnsmasq, kTestNetId, "www.blocked.test"));
+    EXPECT_TRUE(allowsLookup(kDnsmasq, kTestNetId, "example.test"));
+    EXPECT_TRUE(allowsLookup(kOtherSystemUid, kTestNetId, "www.blocked.test"));
 }
 
 TEST_F(FirewallBpfTest, KnownDohServersCantBeLookedUpUnderDomainRules) {

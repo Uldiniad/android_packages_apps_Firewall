@@ -31,6 +31,8 @@
     <string name="activity_protocol">Protocol <xliff:g id="number" example="1">%1$d</xliff:g></string>
     <string name="activity_lookup">Lookup</string>
     <string name="activity_incoming">Connection from others</string>
+    <!-- Who made an entry's lookup: the devices on the phone's hotspot or tethering, as Settings' data usage calls them. -->
+    <string name="activity_tethering">Hotspot &amp; tethering</string>
     <plurals name="activity_count">
         <item quantity="one">once</item>
         <item quantity="other"><xliff:g id="count" example="37">%d</xliff:g> times</item>

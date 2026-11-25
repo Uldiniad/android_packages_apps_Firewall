@@ -20,6 +20,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.WifiTethering
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -201,7 +203,10 @@ private fun Context.withApps(
 private fun ActivityRow(entry: ActivityStore.Entry, app: ApplicationInfo?) {
     val context = LocalContext.current
     val repository = rememberAppRepository()
-    val label = app?.let { repository.produceLabel(it).value } ?: entry.uid.toString()
+    val tethering = UserHandle.getAppId(entry.uid) == DNS_TETHER_UID
+    val label =
+        app?.let { repository.produceLabel(it).value }
+            ?: if (tethering) stringResource(R.string.activity_tethering) else entry.uid.toString()
     val icon = app?.let { repository.produceIcon(it).value }
     val open = app?.let { AppRulesPageProvider.navigator(it) }
     Preference(
@@ -210,11 +215,16 @@ private fun ActivityRow(entry: ActivityStore.Entry, app: ApplicationInfo?) {
             override val summary = { context.activitySummary(entry, label) }
             override val icon =
                 @Composable {
-                    Image(
-                        painter = rememberDrawablePainter(icon),
-                        contentDescription = null,
-                        modifier = Modifier.size(SettingsDimension.appIconItemSize),
-                    )
+                    val size = Modifier.size(SettingsDimension.appIconItemSize)
+                    if (tethering) {
+                        Icon(Icons.Outlined.WifiTethering, contentDescription = null, modifier = size)
+                    } else {
+                        Image(
+                            painter = rememberDrawablePainter(icon),
+                            contentDescription = null,
+                            modifier = size,
+                        )
+                    }
                 }
             override val onClick = open
         }
@@ -251,6 +261,9 @@ private fun Context.activitySummary(entry: ActivityStore.Entry, label: String): 
         resources.getQuantityString(R.plurals.activity_count, entry.count.toInt(), entry.count)
     return parts.joinToString(getString(R.string.activity_separator))
 }
+
+/** dnsmasq's uid, which looks names up for the devices on the phone's hotspot and tethering. */
+private const val DNS_TETHER_UID = 1052
 
 /** The most specific rule that refused the entry. */
 private fun Context.reasonText(entry: ActivityStore.Entry): String {

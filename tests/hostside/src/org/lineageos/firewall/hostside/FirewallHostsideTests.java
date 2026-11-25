@@ -661,6 +661,19 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     }
 
     @Test
+    public void tetheredDevicesLookUpNamesUnderTheRulesForAllApps() throws Exception {
+        String rule = "block domain example.org";
+        shell("cmd firewall add-rule " + rule);
+        try {
+            assertTrue(runDeviceTests(options("HostChecks", "tetheredLookups", 0)
+                    .addInstrumentationArg("blocked", "www.example.org")
+                    .addInstrumentationArg("allowed", "one.one.one.one")));
+        } finally {
+            shell("cmd firewall remove-rule " + rule);
+        }
+    }
+
+    @Test
     public void theActivityLogShowsTheLookupsTheFirewallRefused() throws Exception {
         String rule = " block domain example.org --package " + PACKAGE;
         shell("cmd firewall set-activity-log on");

@@ -272,6 +272,28 @@ static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 
     return false;
 }
 
+// Whether the app's own DNS to a server on the phone is refused: domain rules keep it off loopback
+// too, where dnsmasq answers while the phone tethers. Allow rules come first, as on networks.
+static __always_inline bool loopback_dns_refused(struct __sk_buff* skb, __u32 uid, __u32 rules,
+                                                 const struct fw_path* path,
+                                                 struct l4_info* info) {
+    __u32 user = uid / AID_USER_OFFSET;
+    __u32 uflags = user_flags_of(user);
+    bool own = rules & (FW_RULE_BLOCK_DNS | FW_SCOPE_DOMAINS);
+    if (!own && !(uflags & FW_SCOPE_DOMAINS)) return false;
+    if (!parse_l4(skb, info, true) || (info->port != 53 && info->port != 853)) return false;
+    if ((rules & FW_SCOPE_ALLOWS) && scope_allows(uid, rules, info, path)) return false;
+    if (own) {
+        count((rules & FW_RULE_BLOCK_DNS) ? FW_C_EGRESS_DROP_DNS : FW_C_EGRESS_DROP_DOMAIN);
+        return true;
+    }
+    if ((uflags & FW_SCOPE_ALLOWS) && scope_allows(FW_USER_SCOPE | user, uflags, info, path)) {
+        return false;
+    }
+    count(FW_C_EGRESS_DROP_DOMAIN);
+    return true;
+}
+
 // An app's allow rules win over its blocks, and its rules over its user's. Allow rules for
 // domains reach blocked apps through the addresses learned from the lookups they let through.
 SEC("cgroup_skb/egress")
@@ -283,9 +305,13 @@ int egress(struct __sk_buff* skb) {
 
     // Read once: the verifier refuses a second read through a pointer the compiler kept.
     __u32 ifindex = skb->ifindex;
-    if (ifindex == 1 && !(rules & FW_RULE_NO_LOOPBACK)) return 1;
     struct fw_path path = {.ifindex = ifindex};
     struct l4_info info = {};
+    if (ifindex == 1 && !(rules & FW_RULE_NO_LOOPBACK)) {
+        if (!loopback_dns_refused(skb, uid, rules, &path, &info)) return 1;
+        note_refusal(uid, rules, FW_REFUSAL_OUT, false, &info, true, &path);
+        return 0;
+    }
     bool parsed = false;
     __u32 counter;
     __u32 uflags = FW_FLAGS_UNREAD;

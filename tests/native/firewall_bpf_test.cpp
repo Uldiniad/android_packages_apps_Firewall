@@ -345,9 +345,9 @@ class FirewallBpfTest : public ::testing::Test {
     }
 
     // Sends to 127.0.0.1; returns 0 or the errno of sendto().
-    int sendLoopback() {
+    int sendLoopback(int port = kPort) {
         unique_fd fd = testSocket(AF_INET);
-        sockaddr_in lo = {.sin_family = AF_INET, .sin_port = htons(kPort)};
+        sockaddr_in lo = {.sin_family = AF_INET, .sin_port = htons(port)};
         lo.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         ssize_t sent = sendto(fd.get(), "x", 1, 0, reinterpret_cast<sockaddr*>(&lo), sizeof(lo));
         return sent < 0 ? errno : 0;
@@ -535,14 +535,19 @@ TEST_F(FirewallBpfTest, DomainRulesCoverSubdomainsOnlyWhenTheySaySo) {
 TEST_F(FirewallBpfTest, AnAppsOwnDnsIsBlockedWhileDomainRulesApply) {
     setRules(0);
     EXPECT_EQ(0, sendMulticast(53, dnsQuery("example.test")));
+    EXPECT_EQ(0, sendLoopback(53));
     setRules(FW_SCOPE_DOMAINS);
     EXPECT_EQ(EPERM, sendMulticast(53, dnsQuery("example.test")));
     // DNS over TLS and over QUIC share their port.
     EXPECT_EQ(EPERM, sendMulticast(853));
     EXPECT_EQ(0, sendMulticast(kPort));
+    // Nor does it reach a server on the phone, as dnsmasq while the phone tethers.
+    EXPECT_EQ(EPERM, sendLoopback(53));
+    EXPECT_EQ(0, sendLoopback());
     setRules(0);
     setUserFlags(FW_SCOPE_DOMAINS);
     EXPECT_EQ(EPERM, sendMulticast(53, dnsQuery("example.test")));
+    EXPECT_EQ(EPERM, sendLoopback(53));
     // The app's allow rules still come before its user's rules.
     setRules(FW_SCOPE_IP_ALLOWS);
     putMulticast("ip6_allow", kTestUid);

@@ -152,4 +152,7 @@ final class FirewallMaps {
     static native FileDescriptor nativeListenForLookups();
     static native void nativeSetLookupsWanted(boolean wanted);
     static native String[][] nativeConsumeLookups();
+    static native int nativeAttachHotspot(int ifindex);
+    static native int nativeDetachHotspot(int ifindex);
+    static native int nativeSetHotspotUpstream(int netId);
 }

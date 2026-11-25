@@ -46,6 +46,7 @@ jboolean nativeInit(JNIEnv*, jclass) {
     if (!initSpecificNetworks()) return false;
     if (!initLocalNetwork()) return false;
     if (!initBlockLists()) return false;
+    if (!initHotspot()) return false;
     return gMaps.counters.ok();
 }
 
@@ -186,5 +187,6 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
     if (firewall::registerLocalNetwork(env, cls)) return JNI_ERR;
     if (firewall::registerBlockLists(env, cls)) return JNI_ERR;
     if (firewall::registerActivityLog(env, cls)) return JNI_ERR;
+    if (firewall::registerHotspot(env, cls)) return JNI_ERR;
     return JNI_VERSION_1_6;
 }

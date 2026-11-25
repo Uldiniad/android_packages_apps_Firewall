@@ -138,30 +138,32 @@ struct l4_info {
     __u32 addr[4];
 };
 
-static __always_inline bool parse_l4(struct __sk_buff* skb, struct l4_info* info, bool egress) {
+// The IP packet at the offset: its far end, protocol and ports, the far end's as port.
+static __always_inline bool parse_l4_at(struct __sk_buff* skb, __u32 l3, struct l4_info* info,
+                                        bool egress) {
     __u8 first;
-    if (bpf_skb_load_bytes(skb, 0, &first, 1)) return false;
+    if (bpf_skb_load_bytes(skb, l3, &first, 1)) return false;
     __u32 l4_offset;
     if ((first >> 4) == 4) {
         __u8 protocol;
         __u32 addr = egress ? offsetof(struct iphdr, daddr) : offsetof(struct iphdr, saddr);
-        if (bpf_skb_load_bytes(skb, offsetof(struct iphdr, protocol), &protocol, 1) ||
-            bpf_skb_load_bytes(skb, addr, &info->addr[0], 4)) {
+        if (bpf_skb_load_bytes(skb, l3 + offsetof(struct iphdr, protocol), &protocol, 1) ||
+            bpf_skb_load_bytes(skb, l3 + addr, &info->addr[0], 4)) {
             return false;
         }
         info->protocol = protocol;
         info->v6 = false;
-        l4_offset = (first & 0x0f) * 4;
+        l4_offset = l3 + (first & 0x0f) * 4;
     } else if ((first >> 4) == 6) {
         __u8 next_header;
         __u32 addr = egress ? offsetof(struct ipv6hdr, daddr) : offsetof(struct ipv6hdr, saddr);
-        if (bpf_skb_load_bytes(skb, offsetof(struct ipv6hdr, nexthdr), &next_header, 1) ||
-            bpf_skb_load_bytes(skb, addr, info->addr, 16)) {
+        if (bpf_skb_load_bytes(skb, l3 + offsetof(struct ipv6hdr, nexthdr), &next_header, 1) ||
+            bpf_skb_load_bytes(skb, l3 + addr, info->addr, 16)) {
             return false;
         }
         info->protocol = next_header;
         info->v6 = true;
-        l4_offset = sizeof(struct ipv6hdr);
+        l4_offset = l3 + sizeof(struct ipv6hdr);
     } else {
         return false;
     }
@@ -179,6 +181,10 @@ static __always_inline bool parse_l4(struct __sk_buff* skb, struct l4_info* info
         info->local_port = __builtin_bswap16(ports[!egress]);
     }
     return true;
+}
+
+static __always_inline bool parse_l4(struct __sk_buff* skb, struct l4_info* info, bool egress) {
+    return parse_l4_at(skb, 0, info, egress);
 }
 
 #include "target_rules.h"
@@ -206,6 +212,37 @@ static __always_inline bool cut_off(__u8 direction, __u32 rules, const struct l4
 
 // The user's flags before anything read them; real flags never have every bit set.
 #define FW_FLAGS_UNREAD 0xffffffffu
+
+// What the rules for all of the user's apps decide for a packet out that its app's own didn't:
+// their allows, with the replies their incoming allows let through if wanted, its own DNS while
+// their domain rules apply, their blocks and their lists.
+static __always_inline bool user_rules_drop(__u32 uid, __u32 rules, __u32 uflags, bool dns,
+                                            bool replies, struct l4_info* info,
+                                            const struct fw_path* path, __u32* counter) {
+    __u32 user_scope = FW_USER_SCOPE | (uid / AID_USER_OFFSET);
+    if ((uflags & FW_SCOPE_ALLOWS) && scope_allows(user_scope, uflags, info, path)) {
+        count(FW_C_ALLOWED_BY_RULE);
+        return false;
+    }
+    if (replies && (uflags & FW_SCOPE_INCOMING_ALLOWS) &&
+        incoming_replies(user_scope, info, path)) {
+        count(FW_C_ALLOWED_BY_RULE);
+        return false;
+    }
+    if ((uflags & FW_SCOPE_DOMAINS) &&
+        (dns || listed(&ip4_block, &ip6_block, FW_DOH_SCOPE, 0, info, path))) {
+        *counter = FW_C_EGRESS_DROP_DOMAIN;
+        return true;
+    }
+    if ((uflags & FW_SCOPE_BLOCKS) && scope_blocks(user_scope, uflags, info, path, counter)) {
+        return true;
+    }
+    if (lists_block(uid, rules, user_scope, uflags, info)) {
+        *counter = FW_C_EGRESS_DROP_LIST;
+        return true;
+    }
+    return false;
+}
 
 // Whether a packet out is dropped, and the counter it's dropped under, with the user's flags if it
 // read them.
@@ -245,31 +282,9 @@ static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 
     }
     if ((rules & FW_SCOPE_BLOCKS) && scope_blocks(uid, rules, info, path, counter)) return true;
 
-    __u32 user = uid / AID_USER_OFFSET;
-    __u32 user_scope = FW_USER_SCOPE | user;
-    __u32 uflags = user_flags_of(user);
+    __u32 uflags = user_flags_of(uid / AID_USER_OFFSET);
     *user_flags = uflags;
-    if ((uflags & FW_SCOPE_ALLOWS) && scope_allows(user_scope, uflags, info, path)) {
-        count(FW_C_ALLOWED_BY_RULE);
-        return false;
-    }
-    if ((uflags & FW_SCOPE_INCOMING_ALLOWS) && incoming_replies(user_scope, info, path)) {
-        count(FW_C_ALLOWED_BY_RULE);
-        return false;
-    }
-    if ((uflags & FW_SCOPE_DOMAINS) &&
-        (dns || listed(&ip4_block, &ip6_block, FW_DOH_SCOPE, 0, info, path))) {
-        *counter = FW_C_EGRESS_DROP_DOMAIN;
-        return true;
-    }
-    if ((uflags & FW_SCOPE_BLOCKS) && scope_blocks(user_scope, uflags, info, path, counter)) {
-        return true;
-    }
-    if (lists_block(uid, rules, user_scope, uflags, info)) {
-        *counter = FW_C_EGRESS_DROP_LIST;
-        return true;
-    }
-    return false;
+    return user_rules_drop(uid, rules, uflags, dns, true, info, path, counter);
 }
 
 // Whether the app's own DNS to a server on the phone is refused: domain rules keep it off loopback
@@ -428,5 +443,7 @@ SEC("cgroup/connect6")
 int connect6(struct bpf_sock_addr* ctx) {
     return connect_verdict(ctx, true);
 }
+
+#include "hotspot.h"
 
 LICENSE("Apache 2.0");

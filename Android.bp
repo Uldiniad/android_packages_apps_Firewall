@@ -90,6 +90,7 @@ java_library {
     libs: [
         "framework",
         "framework-connectivity.stubs.module_lib",
+        "framework-tethering.stubs.module_lib",
         "framework-wifi.stubs.module_lib",
         "services.core",
     ],

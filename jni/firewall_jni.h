@@ -92,5 +92,7 @@ int registerLocalNetwork(JNIEnv* env, jclass cls);
 bool initBlockLists();
 void clearBlockLists();
 int registerBlockLists(JNIEnv* env, jclass cls);
+bool initHotspot();
+int registerHotspot(JNIEnv* env, jclass cls);
 
 }  // namespace firewall

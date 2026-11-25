@@ -109,7 +109,8 @@ public final class FirewallService extends SystemService {
                 new MainSwitch(this),
                 new BlockLists(this, storeDir),
                 new Groups(this),
-                new ActivityLog(this));
+                new ActivityLog(this),
+                new Hotspot(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
 
@@ -223,6 +224,7 @@ public final class FirewallService extends SystemService {
         mUidRules.clear();
         mNoLoopback.clear();
         emptyOemDenyChainLocked();
+        for (Feature feature : mFeatures) feature.onTurnedOffLocked();
     }
 
     /** Writes everything again, as a start does, with the programs back on. */

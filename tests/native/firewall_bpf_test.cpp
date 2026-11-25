@@ -75,6 +75,7 @@ const std::vector<std::string> kMaps = {
         "list_ip4",
         "list_ip6",
         "list_files",
+        "hotspot_upstream",
 };
 const std::vector<std::pair<std::string, bpf_attach_type>> kProgs = {
         {"egress", BPF_CGROUP_INET_EGRESS}, {"ingress", BPF_CGROUP_INET_INGRESS},
@@ -429,6 +430,7 @@ TEST_F(FirewallBpfTest, MapsAndProgramsArePinned) {
     for (const auto& [name, type] : kProgs) {
         EXPECT_EQ(0, access(progPath(name).c_str(), F_OK)) << name;
     }
+    EXPECT_EQ(0, access(progPath("hotspot").c_str(), F_OK));
 }
 
 TEST_F(FirewallBpfTest, ProgramsAreAttachedNextToConnectivity) {

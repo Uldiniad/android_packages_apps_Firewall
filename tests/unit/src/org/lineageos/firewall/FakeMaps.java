@@ -50,6 +50,9 @@ final class FakeMaps implements Maps {
     final Map<String, Long> listRanges = new HashMap<>();
     final Map<Integer, Integer> listFiles = new HashMap<>();
     int[][] vpnRanges = new int[0][];
+    /** The interfaces the hotspot program is on, and the upstream it reads. */
+    final Set<String> hotspots = new HashSet<>();
+    int hotspotUpstream;
 
     /**
      * A uid, or "u" and the user id for the rules for all of a user's apps; "ports-" leads the
@@ -207,4 +210,16 @@ final class FakeMaps implements Maps {
     @Override public FileDescriptor listenForLookups() { return null; }
     @Override public void setLookupsWanted(boolean wanted) { lookupsWanted = wanted; }
     @Override public List<Lookup> consumeLookups() { return List.of(); }
+    @Override public int attachHotspot(String iface) {
+        hotspots.add(iface);
+        return 0;
+    }
+    @Override public int detachHotspot(String iface) {
+        hotspots.remove(iface);
+        return 0;
+    }
+    @Override public int setHotspotUpstream(int netId) {
+        hotspotUpstream = netId;
+        return 0;
+    }
 }

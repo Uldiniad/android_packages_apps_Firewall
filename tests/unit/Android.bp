@@ -7,7 +7,10 @@ android_test {
     name: "FirewallServiceTests",
     srcs: ["src/**/*.java"],
     platform_apis: true,
-    libs: ["framework-connectivity.stubs.module_lib"],
+    libs: [
+        "framework-connectivity.stubs.module_lib",
+        "framework-tethering.stubs.module_lib",
+    ],
     static_libs: [
         "androidx.test.runner",
         "compatibility-device-util-axt",

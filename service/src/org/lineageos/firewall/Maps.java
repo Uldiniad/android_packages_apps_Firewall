@@ -8,6 +8,7 @@ package org.lineageos.firewall;
 import android.net.InetAddresses;
 import android.os.SystemProperties;
 import android.system.Os;
+import android.system.OsConstants;
 
 import java.io.FileDescriptor;
 import java.net.InetAddress;
@@ -80,6 +81,12 @@ interface Maps {
     void setLookupsWanted(boolean wanted);
     /** The lookups reported since the last call, oldest first. */
     List<Lookup> consumeLookups();
+    /** Puts the hotspot program on the tethered interface, ahead of Tethering's offload. */
+    int attachHotspot(String iface);
+    /** Takes the hotspot program off the interface; 0 when it wasn't on. */
+    int detachHotspot(String iface);
+    /** The netd network id of Tethering's upstream, for the hotspot program; 0 is none. */
+    int setHotspotUpstream(int netId);
 
     /**
      * Where an app's refusals go, which way and the far end, or with its user's log on where
@@ -218,6 +225,18 @@ interface Maps {
         }
         @Override public List<Lookup> consumeLookups() {
             return Lookup.fromStrings(FirewallMaps.nativeConsumeLookups());
+        }
+        @Override public int attachHotspot(String iface) {
+            int ifindex = Os.if_nametoindex(iface);
+            return ifindex != 0 ? FirewallMaps.nativeAttachHotspot(ifindex) : OsConstants.ENODEV;
+        }
+        @Override public int detachHotspot(String iface) {
+            int ifindex = Os.if_nametoindex(iface);
+            // An interface that's gone took the program with it.
+            return ifindex != 0 ? FirewallMaps.nativeDetachHotspot(ifindex) : 0;
+        }
+        @Override public int setHotspotUpstream(int netId) {
+            return FirewallMaps.nativeSetHotspotUpstream(netId);
         }
     };
 

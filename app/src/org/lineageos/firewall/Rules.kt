@@ -190,10 +190,12 @@ fun TargetRules(packageName: String, userId: Int) {
                 object : PreferenceModel {
                     override val title =
                         stringResource(
-                            if (packageName.startsWith(IFirewall.GROUP_PREFIX)) {
-                                R.string.no_group_rules
-                            } else {
-                                R.string.no_app_rules
+                            when {
+                                packageName.startsWith(IFirewall.GROUP_PREFIX) ->
+                                    R.string.no_group_rules
+                                packageName == IFirewall.HOTSPOT_PACKAGE ->
+                                    R.string.no_hotspot_rules
+                                else -> R.string.no_app_rules
                             }
                         )
                 }

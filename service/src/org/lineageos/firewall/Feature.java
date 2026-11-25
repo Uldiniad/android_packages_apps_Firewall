@@ -162,7 +162,7 @@ abstract class Feature {
     void writeUserLocked(int userId) {}
 
     /** Whether the uid's rules let some traffic through even when it has no network left. */
-    boolean letsThroughLocked(int rules) {
+    boolean letsThroughLocked(int uid, int rules) {
         return false;
     }
 

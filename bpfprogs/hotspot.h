@@ -54,10 +54,13 @@ static __always_inline bool for_the_phone(struct __sk_buff* skb, const struct l4
 
 SEC("tc")
 int hotspot(struct __sk_buff* skb) {
-    // dnsmasq's uid stands for the devices, as for their lookups.
-    __u32 uflags = user_flags_of(AID_DNS_TETHER / AID_USER_OFFSET);
-    if (!(uflags & (FW_SCOPE_ALLOWS | FW_SCOPE_BLOCKS | FW_SCOPE_DOMAINS | FW_SCOPE_LISTS |
-                    FW_USER_LOG))) {
+    // dnsmasq's uid stands for the devices, as for their lookups: its own rules, then its user's.
+    __u32 uid = AID_DNS_TETHER;
+    __u32* own = bpf_map_lookup_elem(&uid_rules, &uid);
+    __u32 rules = own ? *own : 0;
+    __u32 uflags = user_flags_of(uid / AID_USER_OFFSET);
+    if (!rules && !(uflags & (FW_SCOPE_ALLOWS | FW_SCOPE_BLOCKS | FW_SCOPE_DOMAINS |
+                              FW_SCOPE_LISTS | FW_USER_LOG))) {
         return TC_ACT_UNSPEC;
     }
     // Broadcasts and multicasts stay on the hotspot; only what's sent to the phone goes on.
@@ -66,25 +69,28 @@ int hotspot(struct __sk_buff* skb) {
         skb->protocol != __builtin_bswap16(ETH_P_IPV6)) {
         return TC_ACT_UNSPEC;
     }
-    struct l4_info info = {};
-    if (!parse_l4_at(skb, ETH_HLEN, &info, true)) return TC_ACT_UNSPEC;
     __u32 key = 0;
     __u32* upstream = bpf_map_lookup_elem(&hotspot_upstream, &key);
     // Tethering keeps its traffic off VPNs.
     struct fw_path path = {.mark = (upstream ? *upstream : 0) | FW_MARK_EXPLICIT |
                                    FW_MARK_PROTECTED_FROM_VPN,
-                           .owner_uid = AID_DNS_TETHER,
+                           .owner_uid = uid,
                            .connect = true};
-    bool dns = info.port == 53 || info.port == 853;
-    __u32 counter = 0;
-    bool drop = user_rules_drop(AID_DNS_TETHER, 0, uflags, dns, false, &info, &path, &counter);
+    struct l4_info info = {};
+    bool parsed = false;
+    __u32 counter;
+    __u32 read_flags = FW_FLAGS_UNREAD;
+    bool drop = egress_drop(skb, ETH_HLEN, false, uid, rules, &path, &info, &parsed, &counter,
+                            &read_flags);
     // What the phone itself takes is no traffic out through it, so it's neither refused nor logged.
-    if ((drop || (uflags & FW_USER_LOG)) && for_the_phone(skb, &info)) return TC_ACT_UNSPEC;
-    if (drop) {
-        count(counter);
-    } else if (!(uflags & FW_USER_LOG)) {
+    if (parsed && (drop || (uflags & FW_USER_LOG)) && for_the_phone(skb, &info)) {
         return TC_ACT_UNSPEC;
     }
-    note_refusal(AID_DNS_TETHER, 0, FW_REFUSAL_OUT, !drop, &info, true, &path);
+    if (drop) {
+        count(counter);
+    } else if (!parsed || !(uflags & FW_USER_LOG)) {
+        return TC_ACT_UNSPEC;
+    }
+    note_refusal(uid, rules, FW_REFUSAL_OUT, !drop, &info, parsed, &path);
     return drop ? TC_ACT_SHOT : TC_ACT_UNSPEC;
 }

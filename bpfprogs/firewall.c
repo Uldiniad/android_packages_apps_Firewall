@@ -62,10 +62,11 @@ static __always_inline bool is_app_uid(__u32 uid) {
     return uid % AID_USER_OFFSET >= AID_APP_START;
 }
 
-// Explicit per-uid rules apply to any uid but root and system, so shell can be a test subject.
+// Explicit per-uid rules apply to any uid but root, system and dnsmasq, whose rules are those of
+// the devices it serves, so shell can be a test subject.
 static __always_inline __u32 rules_for(__u32 uid, bool* subject) {
     __u32* rules = bpf_map_lookup_elem(&uid_rules, &uid);
-    *subject = rules ? (uid != 0 && uid != 1000) : is_app_uid(uid);
+    *subject = rules ? (uid != 0 && uid != 1000 && uid != AID_DNS_TETHER) : is_app_uid(uid);
     return rules && *subject ? *rules : 0;
 }
 
@@ -244,16 +245,17 @@ static __always_inline bool user_rules_drop(__u32 uid, __u32 rules, __u32 uflags
     return false;
 }
 
-// Whether a packet out is dropped, and the counter it's dropped under, with the user's flags if it
-// read them.
-static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 rules,
-                                        const struct fw_path* path, struct l4_info* info,
-                                        bool* parsed, __u32* counter, __u32* user_flags) {
+// Whether a packet out, its IP header at l3, is dropped, and the counter it's dropped under, with
+// the user's flags if it read them. Incoming allows let the app's replies through if wanted.
+static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 l3, bool replies, __u32 uid,
+                                        __u32 rules, const struct fw_path* path,
+                                        struct l4_info* info, bool* parsed, __u32* counter,
+                                        __u32* user_flags) {
     bool blocked_all = rules & FW_RULE_BLOCK_ALL;
     // Apps kept off loopback are blocked on it as on a network.
     bool blocked_here = path->ifindex == 1 || network_blocked(uid, rules, path);
     *counter = blocked_all ? FW_C_EGRESS_DROP_ALL : FW_C_EGRESS_DROP_TRANSPORT;
-    *parsed = parse_l4(skb, info, true);
+    *parsed = parse_l4_at(skb, l3, info, true);
     if ((blocked_all || blocked_here) && !(rules & FW_SCOPE_ALLOWS)) return true;
     if (!*parsed) return blocked_all || blocked_here;
     if ((rules & FW_RULE_NO_LAN) && lan_via_vpn(path->ifindex, info)) {
@@ -264,7 +266,7 @@ static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 
         count(FW_C_ALLOWED_BY_RULE);
         return false;
     }
-    if ((rules & FW_SCOPE_INCOMING_ALLOWS) && incoming_replies(uid, info, path)) {
+    if (replies && (rules & FW_SCOPE_INCOMING_ALLOWS) && incoming_replies(uid, info, path)) {
         count(FW_C_ALLOWED_BY_RULE);
         return false;
     }
@@ -284,7 +286,7 @@ static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 
 
     __u32 uflags = user_flags_of(uid / AID_USER_OFFSET);
     *user_flags = uflags;
-    return user_rules_drop(uid, rules, uflags, dns, true, info, path, counter);
+    return user_rules_drop(uid, rules, uflags, dns, replies, info, path, counter);
 }
 
 // Whether the app's own DNS to a server on the phone is refused: domain rules keep it off loopback
@@ -330,7 +332,7 @@ int egress(struct __sk_buff* skb) {
     bool parsed = false;
     __u32 counter;
     __u32 uflags = FW_FLAGS_UNREAD;
-    bool drop = egress_drop(skb, uid, rules, &path, &info, &parsed, &counter, &uflags);
+    bool drop = egress_drop(skb, 0, true, uid, rules, &path, &info, &parsed, &counter, &uflags);
     if (drop) {
         count(counter);
     } else {

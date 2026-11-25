@@ -184,7 +184,7 @@ final class TargetRules extends Feature {
     }
 
     @Override
-    boolean letsThroughLocked(int rules) {
+    boolean letsThroughLocked(int uid, int rules) {
         // The OEM deny chain would also block what the app's allow rules let through.
         return (rules & FirewallMaps.SCOPE_ALLOWS) != 0;
     }

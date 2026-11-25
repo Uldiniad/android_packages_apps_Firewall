@@ -674,6 +674,33 @@ public class FirewallHostsideTests extends BaseHostJUnit4Test {
     }
 
     @Test
+    public void tetheredDevicesFollowTheirOwnRulesBeforeTheRulesForAllApps() throws Exception {
+        String hotspot = " --package hotspot:devices";
+        String[] rules = {
+                "block address 1.0.0.1" + hotspot,
+                "block address 1.1.1.1",
+                "allow address 1.1.1.1" + hotspot,
+        };
+        for (String rule : rules) shell("cmd firewall add-rule " + rule);
+        try {
+            assertTrue(runDeviceTests(options("HostChecks", "tetheredTraffic", 0)
+                    .addInstrumentationArg("blocked", "1.0.0.1")));
+        } finally {
+            for (String rule : rules) shell("cmd firewall remove-rule " + rule);
+        }
+    }
+
+    @Test
+    public void tetheredDevicesBlockedFromAllStillHearFromThePhonesDns() throws Exception {
+        shell("cmd firewall set-app hotspot:devices all --user 0");
+        try {
+            assertTrue(runDeviceTests(options("HostChecks", "tetheredBlockAll", 0)));
+        } finally {
+            shell("cmd firewall set-app hotspot:devices none --user 0");
+        }
+    }
+
+    @Test
     public void tetheredDevicesTrafficFollowsTheRulesForAllApps() throws Exception {
         String rule = "block address 1.0.0.1";
         shell("cmd firewall add-rule " + rule);

@@ -51,6 +51,7 @@ import java.util.regex.Pattern
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeFalse
@@ -115,6 +116,9 @@ class FirewallAppTest {
             firewall.removeGroup(userId, group.id)
         }
         firewall.setAppRules(testPackage, userId, 0)
+        if (userId == UserHandle.USER_SYSTEM) {
+            firewall.setAppRules(IFirewall.HOTSPOT_PACKAGE, userId, 0)
+        }
         firewall.setPause(testPackage, userId, false, 0)
         firewall.setSchedule(testPackage, userId, 0, 0, 0)
         firewall.getAppRulesForUser(userId).find { it.packageName == testPackage }?.let { rule ->
@@ -673,6 +677,21 @@ class FirewallAppTest {
             scrollTo(By.textContains(prefix), "shared uid footer")
         }
     }
+
+    @Test
+    fun theHotspotRowOpensItsDevicesPageWithoutAVpnSwitch() =
+        onPage("AppList") {
+            search("Hotspot")
+            find(text("hotspot_title")).click()
+            scrollTo(text("network_mobile")).click()
+            waitUntil {
+                firewall.getAppRules(IFirewall.HOTSPOT_PACKAGE, UserHandle.USER_SYSTEM) ==
+                    IFirewall.BLOCK_CELLULAR
+            }
+            scrollTo(text("network_other"))
+            // Tethering never goes out through a VPN.
+            assertNull(device.findObject(By.text(text("network_vpn"))))
+        }
 
     @Test
     fun aGroupIsAddedByNameAndOpensOnItsPage() =

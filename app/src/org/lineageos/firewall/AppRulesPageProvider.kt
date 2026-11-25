@@ -114,10 +114,13 @@ fun RulesControls(packageName: String, userId: Int, appRules: Map<String, AppRul
     ScheduleEntries(packageName, userId, rule)
     Category(title = stringResource(R.string.networks_title)) {
         for (network in Network.entries) {
+            if (network == Network.VPN && !hasVpnChoices(packageName)) continue
             SwitchPreference(
                 object : SwitchPreferenceModel {
                     override val title = stringResource(network.title)
-                    override val summary = { network.summary?.let { context.getString(it) } ?: "" }
+                    override val summary = {
+                        network.summaryOn(packageName)?.let { context.getString(it) } ?: ""
+                    }
                     override val checked = { rules?.let { it and network.rule == 0 } }
                     override val changeable = { allowed }
                     override val onCheckedChange: (Boolean) -> Unit = {

@@ -208,7 +208,9 @@ private fun ActivityRow(entry: ActivityStore.Entry, app: ApplicationInfo?) {
         app?.let { repository.produceLabel(it).value }
             ?: if (tethering) stringResource(R.string.activity_tethering) else entry.uid.toString()
     val icon = app?.let { repository.produceIcon(it).value }
-    val open = app?.let { AppRulesPageProvider.navigator(it) }
+    val open =
+        app?.let { AppRulesPageProvider.navigator(it) }
+            ?: if (tethering) HotspotPageProvider.navigator() else null
     Preference(
         object : PreferenceModel {
             override val title = entry.name ?: entry.address ?: ""

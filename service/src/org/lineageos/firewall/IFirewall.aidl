@@ -55,6 +55,9 @@ interface IFirewall {
     /** A group goes by this and its id where calls take an app's packageName, for its rules. */
     const String GROUP_PREFIX = "group:";
 
+    /** The devices on the phone's hotspot go by this for their rules, in the main user. */
+    const String HOTSPOT_PACKAGE = "hotspot:devices";
+
     /** What an ActivityEntry is: a connection, traffic out or in, one others opened, a lookup. */
     const int ACTIVITY_CONNECT = 0;
     const int ACTIVITY_OUT = 1;

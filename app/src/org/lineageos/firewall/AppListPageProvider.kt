@@ -44,7 +44,7 @@ object AppListPageProvider : SettingsPageProvider {
         val context = LocalContext.current
         AppListPage(
             title = stringResource(R.string.app_name),
-            listModel = remember { FirewallAppListModel(context) },
+            listModel = remember { FirewallAppListModel(context, hotspot = true) },
             appList = {
                 val userId = config.userIds.first()
                 copy(header = { if (state.searchQuery().isEmpty()) UserSettings(userId) }).AppList()
@@ -59,15 +59,22 @@ data class FirewallAppRecord(
     val usesInternet: Boolean,
 ) : AppRecord
 
-open class FirewallAppListModel(private val context: Context) : AppListModel<FirewallAppRecord> {
+open class FirewallAppListModel(
+    private val context: Context,
+    private val hotspot: Boolean = false,
+) : AppListModel<FirewallAppRecord> {
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun transform(userIdFlow: Flow<Int>, appListFlow: Flow<List<ApplicationInfo>>) =
         appListFlow
             .map { apps -> apps.map { it to usesInternet(it) } }
-            .combine(userIdFlow.flatMapLatest { Firewall.appRules(it) }) { apps, rules ->
+            .combine(
+                userIdFlow.flatMapLatest { userId ->
+                    Firewall.appRules(userId).map { userId to it }
+                }
+            ) { apps, (userId, rules) ->
                 apps.map { (app, usesInternet) ->
                     FirewallAppRecord(app, rules[app.packageName], usesInternet)
-                }
+                } + if (hotspot) context.hotspotRecords(userId, rules) else emptyList()
             }
 
     // As in Datura, system apps that can't use the internet have nothing to block. Root and the
@@ -88,7 +95,11 @@ open class FirewallAppListModel(private val context: Context) : AppListModel<Fir
 
     @Composable
     override fun AppListItemModel<FirewallAppRecord>.AppItem() {
-        AppListItem(onClick = AppRulesPageProvider.navigator(record.app))
+        if (record.isHotspot()) {
+            HotspotItem()
+        } else {
+            AppListItem(onClick = AppRulesPageProvider.navigator(record.app))
+        }
     }
 
     private fun usesInternet(app: ApplicationInfo) =

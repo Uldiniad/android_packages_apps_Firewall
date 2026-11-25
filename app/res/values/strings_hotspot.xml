@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources>
+    <!-- Row among the apps, and title of its page: the devices on the phone's hotspot or tethering, as Settings' data usage calls them. -->
+    <string name="hotspot_title">Hotspot &amp; tethering</string>
+    <string name="hotspot_footer">These rules apply to devices on this phone\'s hotspot or tethered to it, and to the names they look up. Allow rules win over block rules, and these rules over the rules for all apps.</string>
+    <!-- The hotspot's counterparts of an app's texts on the pages they share. -->
+    <string name="no_hotspot_rules">No rules for these devices</string>
+    <string name="hotspot_metered_summary">Such as mobile data and hotspots</string>
+    <string name="specific_networks_summary_hotspot">Choose for each Wi\u2011Fi network and SIM</string>
+    <string name="specific_networks_footer_hotspot">A choice for a network wins over the devices\' other switches for it, like Wi\u2011Fi or metered networks.</string>
+</resources>

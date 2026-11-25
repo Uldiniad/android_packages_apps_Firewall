@@ -72,6 +72,7 @@ private fun SpecificNetworksPage(packageName: String, userId: Int) {
     }
     val content: @Composable () -> Unit = {
         for (kind in SpecificKind.entries) {
+            if (kind == SpecificKind.VPN && !hasVpnChoices(packageName)) continue
             Category(title = stringResource(kind.category)) {
                 // The networks the device is on come first.
                 val shown =
@@ -112,11 +113,18 @@ private fun SpecificNetworksPage(packageName: String, userId: Int) {
             }
         }
     }
-    if (packageName.startsWith(IFirewall.GROUP_PREFIX)) {
-        // A group has no app to head the page.
+    val footer =
+        when {
+            packageName.startsWith(IFirewall.GROUP_PREFIX) ->
+                R.string.specific_networks_footer_group
+            packageName == IFirewall.HOTSPOT_PACKAGE -> R.string.specific_networks_footer_hotspot
+            else -> null
+        }
+    if (footer != null) {
+        // A group or the hotspot's devices have no app to head the page.
         RegularScaffold(title = stringResource(R.string.specific_networks)) {
             content()
-            Footer(stringResource(R.string.specific_networks_footer_group))
+            Footer(stringResource(footer))
         }
     } else {
         AppInfoPage(
@@ -188,13 +196,18 @@ fun SpecificNetworksEntry(packageName: String, userId: Int, rule: AppRule?, allo
         object : PreferenceModel {
             override val title = stringResource(R.string.specific_networks)
             override val summary = {
-                if (choices == 0) context.getString(R.string.specific_networks_summary)
-                else
+                if (choices == 0) {
+                    context.getString(
+                        if (hasVpnChoices(packageName)) R.string.specific_networks_summary
+                        else R.string.specific_networks_summary_hotspot
+                    )
+                } else {
                     context.resources.getQuantityString(
                         R.plurals.specific_network_count,
                         choices,
                         choices,
                     )
+                }
             }
             override val enabled = { allowed }
             override val onClick = SpecificNetworksPageProvider.navigator(packageName, userId)

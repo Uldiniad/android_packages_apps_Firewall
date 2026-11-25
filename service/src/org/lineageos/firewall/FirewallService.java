@@ -508,9 +508,9 @@ public final class FirewallService extends SystemService {
     }
 
     /** Whether a feature lets some of the uid's traffic through though it has no network. */
-    private boolean letsThroughLocked(int rules) {
+    private boolean letsThroughLocked(int uid, int rules) {
         for (Feature feature : mFeatures) {
-            if (feature.letsThroughLocked(rules)) return true;
+            if (feature.letsThroughLocked(uid, rules)) return true;
         }
         return false;
     }
@@ -518,7 +518,7 @@ public final class FirewallService extends SystemService {
     private Set<Integer> blockedEverywhereLocked() {
         Set<Integer> uids = new HashSet<>();
         for (Map.Entry<Integer, Integer> rule : mUidRules.entrySet()) {
-            if (letsThroughLocked(rule.getValue())) continue;
+            if (letsThroughLocked(rule.getKey(), rule.getValue())) continue;
             if (cutOffLocked(rule.getKey())) uids.add(rule.getKey());
         }
         return uids;
@@ -531,7 +531,7 @@ public final class FirewallService extends SystemService {
      */
     private boolean noLoopbackLocked(int uid) {
         return cutOffLocked(uid) && (!mKnowsLoopbackReceivers
-                || letsThroughLocked(mUidRules.get(uid)));
+                || letsThroughLocked(uid, mUidRules.get(uid)));
     }
 
     private void writeUidLocked(int uid) {

@@ -215,7 +215,8 @@ private fun AddRulesPage(userId: Int, packageName: String?, kind: RuleKind?) {
                 portInvalid = false
             }
         }
-        if (shown == RuleKind.PORT) {
+        // Incoming rules cover ports on this phone, not on the hotspot's devices.
+        if (shown == RuleKind.PORT && packageName != IFirewall.HOTSPOT_PACKAGE) {
             SettingsDropdownBox(
                 label = stringResource(R.string.direction_label),
                 options =

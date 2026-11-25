@@ -119,6 +119,18 @@ public class HostChecks {
         }
     }
 
+    /**
+     * Devices tethered to the phone with all their traffic blocked still hear back from its DNS,
+     * that names don't exist, and reach nothing through it.
+     */
+    @Test
+    public void tetheredBlockAll() throws Exception {
+        try (TetheredDevice device = TetheredDevice.start()) {
+            assertEquals(Firewall.NXDOMAIN, device.lookUp("one.one.one.one").rcode());
+            assertFalse(device.connects(address(), port()));
+        }
+    }
+
     /** Android's resolver answers this app's lookup of the "host" argument, else example.org. */
     @Test
     public void looksUp() throws Exception {

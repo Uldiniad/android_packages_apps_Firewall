@@ -65,6 +65,10 @@ final class FirewallMaps {
     /** In user flags: the user is in lockdown; the apps' bit of the position is ALLOW_LOCKDOWN. */
     static final int USER_LOCKDOWN = 1 << 26;
     static final int ALLOW_LOCKDOWN = IFirewall.ALLOW_LOCKDOWN;
+    /** In user flags: Safe Search is on, as netd's lookup check has the engines' names looked up. */
+    static final int USER_SAFE_SEARCH = 1 << 27;
+    /** Google's search domains for Safe Search, as the programs' FW_SAFE_SEARCH_SCOPE. */
+    static final int SAFE_SEARCH_SCOPE = USER_SCOPE | 0x7ffffffe;
     /** A scope with this set holds the incoming rules of the scope without it. */
     static final int INCOMING_SCOPE = 1 << 30;
     static final int LIST_SLOTS = 64;

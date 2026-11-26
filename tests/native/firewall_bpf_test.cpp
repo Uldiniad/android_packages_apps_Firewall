@@ -38,6 +38,7 @@ using android::bpf::retrieveProgram;
 using android::bpf::writeToMapEntry;
 using android::firewall::allowsLookup;
 using android::firewall::allowsAnswer;
+using android::firewall::lookupNameFor;
 using android::firewall::tetheringClientUid;
 using android::net::TunInterface;
 
@@ -1252,6 +1253,32 @@ TEST_F(FirewallBpfTest, TheMainUsersLockdownTakesHotspotDevicesOffButThoseLetThr
     put("uid_rules", static_cast<uint32_t>(AID_DNS_TETHER), uint32_t{FW_RULE_ALLOW_LOCKDOWN});
     EXPECT_EQ(TC_ACT_UNSPEC, hotspotVerdict(hotspotFrame(0x98, "198.51.100.4")));
     EXPECT_TRUE(allowsLookup(AID_DNS_TETHER, kTestNetId, "example.test"));
+}
+
+TEST_F(FirewallBpfTest, SafeSearchHasTheEnginesSafeNamesLookedUpInstead) {
+    char name[256];
+    setRules(0);
+    setUserFlags(0);
+    EXPECT_FALSE(lookupNameFor(kTestUid, "www.google.com", name, sizeof(name)));
+    setUserFlags(FW_USER_SAFE_SEARCH | FW_SCOPE_DOMAINS);
+    ASSERT_TRUE(lookupNameFor(kTestUid, "WWW.Google.com.", name, sizeof(name)));
+    EXPECT_STREQ("forcesafesearch.google.com", name);
+    ASSERT_TRUE(lookupNameFor(kTestUid, "m.youtube.com", name, sizeof(name)));
+    EXPECT_STREQ("restrict.youtube.com", name);
+    ASSERT_TRUE(lookupNameFor(kTestUid, "www.bing.com", name, sizeof(name)));
+    EXPECT_STREQ("strict.bing.com", name);
+    ASSERT_TRUE(lookupNameFor(kTestUid, "duckduckgo.com", name, sizeof(name)));
+    EXPECT_STREQ("safe.duckduckgo.com", name);
+    EXPECT_FALSE(lookupNameFor(kTestUid, "maps.google.com", name, sizeof(name)));
+    EXPECT_FALSE(lookupNameFor(kTestUid, "youtube.com", name, sizeof(name)));
+    // Google's search domains for other countries once its list of them holds them. A reserved
+    // name stands in for one, as the phone's own list may hold the real ones.
+    EXPECT_FALSE(lookupNameFor(kTestUid, "www.google.test", name, sizeof(name)));
+    putDomain(FW_SAFE_SEARCH_SCOPE, "google.test", FW_DOMAIN_BLOCK);
+    ASSERT_TRUE(lookupNameFor(kTestUid, "www.google.test", name, sizeof(name)));
+    EXPECT_STREQ("forcesafesearch.google.com", name);
+    EXPECT_TRUE(lookupNameFor(kTestUid, "google.test", name, sizeof(name)));
+    EXPECT_FALSE(lookupNameFor(kTestUid, "mail.google.test", name, sizeof(name)));
 }
 
 }  // namespace

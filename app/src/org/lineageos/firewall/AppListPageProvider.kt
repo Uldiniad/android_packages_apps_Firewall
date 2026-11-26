@@ -125,6 +125,7 @@ private fun UserSettings(userId: Int) {
     Category {
         LockdownPreference(userId)
         BlockAllWhileLockedSwitch(userId)
+        SafeSearchSwitch(userId)
         NewAppsPreferences(userId)
         AllAppsRulesEntry(userId)
         GroupsEntry(userId)

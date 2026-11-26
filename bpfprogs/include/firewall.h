@@ -97,6 +97,11 @@
 // with FW_RULE_ALLOW_LOCKDOWN; the main user's keeps the hotspot's devices off it too.
 #define FW_USER_LOCKDOWN (1u << 26)
 #define FW_RULE_ALLOW_LOCKDOWN (1u << 26)
+// In user_flags: Safe Search is on for the user, so netd's lookup check has the resolver look up
+// the search engines' safe-search names in place of theirs.
+#define FW_USER_SAFE_SEARCH (1u << 27)
+// Google's search domains, as Safe Search downloads them, are domain_rules entries of this scope.
+#define FW_SAFE_SEARCH_SCOPE (FW_USER_SCOPE | 0x7ffffffeu)
 #define FW_INCOMING_SCOPE (1u << 30)
 // A list's domains are in a file netd maps: FW_LISTS_DIR "<slot>-<generation>.names", which holds
 // FW_LIST_NAMES_MAGIC, a count, and the sorted keys of fw_domain_hash with the subdomain bit.

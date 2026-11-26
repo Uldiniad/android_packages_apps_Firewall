@@ -112,7 +112,8 @@ public final class FirewallService extends SystemService {
                 new ActivityLog(this),
                 new Hotspot(this),
                 new LockedBlocking(this),
-                new Lockdown(this));
+                new Lockdown(this),
+                new SafeSearch(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
 
@@ -1050,6 +1051,30 @@ public final class FirewallService extends SystemService {
         public boolean isLockdown(int userId) {
             enforceUser(userId);
             return feature(Lockdown.class).isLockdownInternal(userId);
+        }
+
+        @Override
+        public void setSafeSearch(int userId, boolean on) {
+            enforceUser(userId);
+            runAsSystem(() -> feature(SafeSearch.class).setSafeSearchInternal(userId, on));
+        }
+
+        @Override
+        public boolean isSafeSearch(int userId) {
+            enforceUser(userId);
+            return feature(SafeSearch.class).isSafeSearchInternal(userId);
+        }
+
+        @Override
+        public SafeSearchDomains getSafeSearchDomains() {
+            enforcePermission();
+            return feature(SafeSearch.class).getDomainsInternal();
+        }
+
+        @Override
+        public void setSafeSearchDomains(SafeSearchDomains domains) {
+            enforcePermission();
+            runAsSystem(() -> feature(SafeSearch.class).setDomainsInternal(domains));
         }
 
         @Override

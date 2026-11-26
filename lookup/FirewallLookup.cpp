@@ -7,8 +7,11 @@
 
 #include "firewall_lookup.h"
 
+#include <ctype.h>
 #include <string.h>
 
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -19,6 +22,7 @@
 #include "block_lists.h"
 #include "firewall.h"
 #include "firewall_domain.h"
+#include "safe_search.h"
 
 namespace android::firewall {
 
@@ -325,6 +329,29 @@ bool allowsAnswer(uid_t uid, unsigned netId, const char* name, const char* const
     }
     if (blocked && !allowed) return false;
     learn(maps, uid, scopes, names, addresses, count);
+    return true;
+}
+
+bool lookupNameFor(uid_t uid, const char* name, char* buffer, size_t size) {
+    const LookupMaps& maps = lookupMaps();
+    if (!maps.ready || name == nullptr || uid == AID_ROOT || uid == AID_SYSTEM) return false;
+    // Apps, and the hotspot's devices under the main user's.
+    if ((!followsUserRules(uid) && !isHotspotDevice(uid)) ||
+        !(userFlagsOf(maps, uid) & FW_USER_SAFE_SEARCH)) {
+        return false;
+    }
+    std::string asked(name);
+    for (char& c : asked) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    if (!asked.empty() && asked.back() == '.') asked.pop_back();
+    std::string_view safe = engineSafeName(asked);
+    if (safe.empty()) {
+        std::string_view domain = googleSearchDomain(asked);
+        fw_scope_domain_key key = {.scope = FW_SAFE_SEARCH_SCOPE, .hash = fw_domain_hash(domain)};
+        if (!domain.empty() && maps.domainRules.readValue(key).ok()) safe = kGoogleSafeSearch;
+    }
+    if (safe.empty() || safe.size() >= size) return false;
+    memcpy(buffer, safe.data(), safe.size());
+    buffer[safe.size()] = '\0';
     return true;
 }
 

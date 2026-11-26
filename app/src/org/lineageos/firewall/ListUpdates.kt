@@ -154,7 +154,57 @@ object ListUpdates {
                 Log.e(TAG, "List check failed", e)
             }
         }
-        return retry
+        return retry or !checkSafeSearch(onlyNew, running)
+    }
+
+    /**
+     * Checks Google's search domains for Safe Search, while a user has it on, as a list is
+     * checked; false on network failure.
+     */
+    private fun checkSafeSearch(onlyNew: Boolean, running: (HttpURLConnection?) -> Unit): Boolean {
+        val kept =
+            try {
+                Firewall.service.safeSearchDomains
+            } catch (e: RemoteException) {
+                return true
+            } ?: return true
+        if (onlyNew && kept.checkedMillis != 0L) return true
+        val connection =
+            try {
+                URL(GoogleDomains.URL).openConnection() as HttpURLConnection
+            } catch (e: IOException) {
+                return false
+            }
+        running(connection)
+        try {
+            kept.etag?.let { connection.setRequestProperty("If-None-Match", it) }
+            kept.lastModified?.let { connection.setRequestProperty("If-Modified-Since", it) }
+            val checked = SafeSearchDomains()
+            when (connection.responseCode) {
+                HttpURLConnection.HTTP_NOT_MODIFIED -> {}
+                HttpURLConnection.HTTP_OK -> {
+                    // A download that isn't Google's list leaves the domains as they were.
+                    val names =
+                        connection.inputStream.bufferedReader(Charsets.UTF_8).use {
+                            GoogleDomains.parse(it)
+                        } ?: return true
+                    checked.names = names.toTypedArray()
+                    checked.etag = connection.getHeaderField("ETag")
+                    checked.lastModified = connection.getHeaderField("Last-Modified")
+                }
+                else -> return true
+            }
+            Firewall.service.setSafeSearchDomains(checked)
+            return true
+        } catch (e: IOException) {
+            Log.w(TAG, "Safe Search's check failed", e)
+            return false
+        } catch (e: RemoteException) {
+            return true
+        } finally {
+            running(null)
+            connection.disconnect()
+        }
     }
 
     /** Checks one list for changes and hands the service what it holds; false on network failure. */

@@ -20,7 +20,7 @@
     <string name="why_any_protocol_port">TCP and UDP <xliff:g id="port" example="443">%1$s</xliff:g></string>
     <string name="why_domain_gone">A domain rule or list, for a name its answer pointed to or one that changed since</string>
     <string name="why_rule_gone">A rule that changed since</string>
-    <string name="why_dns">Its own DNS, as apps with domain rules look names up through Android\'s DNS</string>
+    <string name="why_dns">Its own DNS, as apps under domain rules or Safe Search look names up through Android\'s DNS</string>
     <string name="why_lan">Local network through a VPN</string>
     <string name="why_network">Blocked on <xliff:g id="network" example="Wi-Fi">%1$s</xliff:g></string>
     <string name="why_network_unknown">Blocked on the network it used</string>

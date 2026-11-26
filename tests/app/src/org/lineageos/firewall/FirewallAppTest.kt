@@ -146,6 +146,7 @@ class FirewallAppTest {
         firewall.setNewInstallsBlocked(userId, newAppsBlocked)
         firewall.setBlockedWhileLocked(userId, false)
         firewall.setLockdown(userId, false)
+        firewall.setSafeSearch(userId, false)
         firewall.setActivityLog(userId, false)
         firewall.clearActivity(userId)
     }
@@ -673,6 +674,13 @@ class FirewallAppTest {
             runShellCommand("cmd statusbar remove-tile $tile")
         }
     }
+
+    @Test
+    fun safeSearchTurnsOnForAllAppsFromTheHomePage() =
+        onPage("AppList") {
+            scrollTo(text("safe_search_title")).click()
+            waitUntil { firewall.isSafeSearch(userId) }
+        }
 
     @Test
     fun schedulePageTurnsABedtimeScheduleOn() =

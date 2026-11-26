@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources>
+    <!-- On the home page: a switch that has search engines show only safe results. -->
+    <string name="safe_search_title">Safe Search</string>
+    <string name="safe_search_summary">Google, YouTube, Bing and DuckDuckGo show safe results only. Apps have to use Android\'s DNS.</string>
+    <!-- The main user's Safe Search also covers the devices on the phone's hotspot. -->
+    <string name="safe_search_summary_hotspot">Google, YouTube, Bing and DuckDuckGo show safe results only, on hotspot devices too. Apps have to use Android\'s DNS.</string>
+    <!-- Safe Search is on, and Google's list of its sites for other countries hasn't downloaded yet. -->
+    <string name="safe_search_not_downloaded">Google\'s sites for other countries are covered once their list downloads.</string>
+</resources>

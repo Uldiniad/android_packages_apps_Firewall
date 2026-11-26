@@ -14,6 +14,7 @@ import org.lineageos.firewall.FirewallRule;
 import org.lineageos.firewall.HotspotDevice;
 import org.lineageos.firewall.IFirewallListener;
 import org.lineageos.firewall.KnownNetwork;
+import org.lineageos.firewall.SafeSearchDomains;
 
 interface IFirewall {
     /** Rule bits; each set bit blocks the app somewhere. */
@@ -205,4 +206,15 @@ interface IFirewall {
      */
     void setLockdown(int userId, boolean on);
     boolean isLockdown(int userId);
+
+    /**
+     * Gives all of the user's apps the search engines' safe results, and holds them to Android's
+     * DNS meanwhile; the main user's covers the hotspot's devices too. Or stops.
+     */
+    void setSafeSearch(int userId, boolean on);
+    boolean isSafeSearch(int userId);
+    /** Google's search domains as Safe Search keeps them; null while no user has it on. */
+    @nullable SafeSearchDomains getSafeSearchDomains();
+    /** The firewall app's check of Google's search domains: new names, or null names unchanged. */
+    void setSafeSearchDomains(in SafeSearchDomains domains);
 }

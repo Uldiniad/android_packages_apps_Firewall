@@ -26,4 +26,9 @@ bool allowsAnswer(uid_t uid, unsigned netId, const char* name, const char* const
 // IPv4-mapped: the device's, when it has rules of its own; -1 when they count as dnsmasq's.
 uid_t tetheringClientUid(const in6_addr* address);
 
+// Writes the name the resolver looks up in place of the one the app asked for into the buffer of
+// the size, NUL-terminated: a search engine's safe-search name, while the app's user has Safe
+// Search on. False when the name is looked up as asked.
+bool lookupNameFor(uid_t uid, const char* name, char* buffer, size_t size);
+
 }  // namespace android::firewall

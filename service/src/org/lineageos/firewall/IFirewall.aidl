@@ -6,6 +6,7 @@
 package org.lineageos.firewall;
 
 import org.lineageos.firewall.ActivityEntry;
+import org.lineageos.firewall.ActivityMatch;
 import org.lineageos.firewall.AppRule;
 import org.lineageos.firewall.FirewallGroup;
 import org.lineageos.firewall.FirewallList;
@@ -174,4 +175,7 @@ interface IFirewall {
     HotspotDevice[] getHotspotDevices();
     /** Drops the device's own rules. */
     void forgetHotspotDevice(String mac);
+
+    /** The current rules, lists and switches that account for the user's refused entry. */
+    ActivityMatch[] explainActivity(int userId, in ActivityEntry entry);
 }

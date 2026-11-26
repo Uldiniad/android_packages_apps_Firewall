@@ -129,10 +129,12 @@ class FirewallAppTest {
                 firewall.setAppNetwork(testPackage, userId, network, IFirewall.NETWORK_DEFAULT)
             }
         }
+        // The test app's rules are all the tests', but the rules for all apps may be the phone's.
         firewall.removeRules(
-            (firewall.getRules(userId, testPackage) + firewall.getRules(userId, null))
-                .filter { it.value in TEST_VALUES || it.port in TEST_VALUES }
-                .toTypedArray()
+            firewall.getRules(userId, testPackage) +
+                firewall.getRules(userId, null).filter {
+                    it.value in TEST_VALUES || it.port in TEST_VALUES
+                }
         )
         for (list in firewall.getLists(userId).filter { it.title == LIST_FILE }) {
             firewall.removeList(userId, list.packageName, list.id)
@@ -799,6 +801,23 @@ class FirewallAppTest {
         }
 
     @Test
+    fun aBlockedEntrySaysWhichRuleBlockedIt() =
+        onPage("Activity/$userId") {
+            find(text("record_activity")).click()
+            waitUntil { firewall.isActivityLogOn(userId) }
+            firewall.addRules(arrayOf(rule(testPackage, IFirewall.RULE_ADDRESS, BLOCKED_TO)))
+            DatagramSocket().use {
+                // Refused at once, which is what the log records.
+                runCatching {
+                    it.send(DatagramPacket(byteArrayOf(1), 1, InetAddress.getByName(BLOCKED_TO), 9))
+                }
+            }
+            find(BLOCKED_TO).click()
+            find(text("why_address_rule", BLOCKED_TO))
+            find(text("why_rules_for", context.applicationInfo.loadLabel(context.packageManager)))
+        }
+
+    @Test
     fun rulesForAllAppsHaveATabPerKind() =
         onPage("AllAppsRules/$userId") {
             for ((tab, add) in RULE_TABS) {
@@ -1208,6 +1227,7 @@ class FirewallAppTest {
         // A device on no hotspot, with rules of its own.
         const val TEST_DEVICE = "02:00:00:00:00:42"
         const val SENT_TO = "192.0.2.1"
+        const val BLOCKED_TO = "192.0.2.2"
         const val RENAMED_GROUP = "Firewall test group, renamed"
         val TEST_GROUPS = setOf(GROUP, RENAMED_GROUP)
         const val SYSTEMUI_BATTERY = "com.android.systemui:id/battery_meter_composable_view"

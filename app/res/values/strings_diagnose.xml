@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- An activity entry's page: the heading over the rules, lists and switches that refused it -->
+    <string name="activity_why">Why it was blocked</string>
+    <string name="why_domain_rule">Domain rule: <xliff:g id="domain" example="example.com">%1$s</xliff:g></string>
+    <string name="why_domain_rule_subdomains">Domain rule: <xliff:g id="domain" example="example.com">%1$s</xliff:g> and its subdomains</string>
+    <string name="why_address_rule">Address rule: <xliff:g id="address" example="192.0.2.0/24">%1$s</xliff:g></string>
+    <string name="why_port_rule">Port rule: <xliff:g id="port" example="TCP 443">%1$s</xliff:g></string>
+    <string name="why_incoming_rule">Incoming rule: <xliff:g id="port" example="TCP 8080">%1$s</xliff:g> from <xliff:g id="sender" example="anyone">%2$s</xliff:g></string>
+    <string name="why_from_anyone">anyone</string>
+    <string name="why_from_local_network">the local network</string>
+    <string name="why_list">List: <xliff:g id="list" example="OISD big">%1$s</xliff:g></string>
+    <!-- A rule that names a port too, like "Address rule: 192.0.2.7 · TCP 443" -->
+    <string name="why_with_port"><xliff:g id="rule" example="Address rule: 192.0.2.7">%1$s</xliff:g> · <xliff:g id="port" example="TCP 443">%2$s</xliff:g></string>
+    <string name="why_protocol_port"><xliff:g id="protocol" example="TCP">%1$s</xliff:g> <xliff:g id="port" example="443">%2$s</xliff:g></string>
+    <string name="why_any_protocol_port">TCP and UDP <xliff:g id="port" example="443">%1$s</xliff:g></string>
+    <string name="why_domain_gone">A domain rule or list, for a name its answer pointed to or one that changed since</string>
+    <string name="why_rule_gone">A rule that changed since</string>
+    <string name="why_dns">Its own DNS, as apps with domain rules look names up through Android\'s DNS</string>
+    <string name="why_lan">Local network through a VPN</string>
+    <string name="why_network">Blocked on <xliff:g id="network" example="Wi-Fi">%1$s</xliff:g></string>
+    <string name="why_network_unknown">Blocked on the network it used</string>
+    <string name="why_all">Blocked everywhere</string>
+    <!-- Whose rules a match is, like "Rules for Chrome"; the rules for all apps keep their own name -->
+    <string name="why_rules_for">Rules for <xliff:g id="name" example="Chrome">%1$s</xliff:g></string>
+    <string name="why_nothing">Nothing in the current rules accounts for it</string>
+</resources>

@@ -183,12 +183,12 @@ private fun ActivityList(
         },
     ) { index ->
         val (entry, app) = shown[index]
-        ActivityRow(entry, app, devices.find { it.uid != 0 && it.uid == entry.uid })
+        ActivityRow(userId, entry, app, devices.find { it.uid != 0 && it.uid == entry.uid })
     }
 }
 
 /** Each entry with the installed app its uid belongs to, if any. */
-private fun Context.withApps(
+internal fun Context.withApps(
     entries: List<ActivityStore.Entry>
 ): List<Pair<ActivityStore.Entry, ApplicationInfo?>> {
     val apps = HashMap<Int, ApplicationInfo?>()
@@ -206,8 +206,15 @@ private fun Context.withApps(
     }
 }
 
+/** An entry, which opens its page; on that page, whoever it was for, which opens their rules. */
 @Composable
-private fun ActivityRow(entry: ActivityStore.Entry, app: ApplicationInfo?, device: HotspotDevice?) {
+internal fun ActivityRow(
+    userId: Int,
+    entry: ActivityStore.Entry,
+    app: ApplicationInfo?,
+    device: HotspotDevice?,
+    opensEntry: Boolean = true,
+) {
     val context = LocalContext.current
     val repository = rememberAppRepository()
     val tethering = device != null || UserHandle.getAppId(entry.uid) == DNS_TETHER_UID
@@ -217,13 +224,17 @@ private fun ActivityRow(entry: ActivityStore.Entry, app: ApplicationInfo?, devic
             ?: if (tethering) stringResource(R.string.activity_tethering) else entry.uid.toString()
     val icon = app?.let { repository.produceIcon(it).value }
     val open =
-        app?.let { AppRulesPageProvider.navigator(it) }
-            ?: device?.let { HotspotDevicePageProvider.navigator(it.mac) }
-            ?: if (tethering) HotspotPageProvider.navigator() else null
+        if (opensEntry) {
+            ActivityEntryPageProvider.navigator(userId, entry.key)
+        } else {
+            app?.let { AppRulesPageProvider.navigator(it) }
+                ?: device?.let { HotspotDevicePageProvider.navigator(it.mac) }
+                ?: if (tethering) HotspotPageProvider.navigator() else null
+        }
     Preference(
         object : PreferenceModel {
-            override val title = entry.name ?: entry.address ?: ""
-            override val summary = { context.activitySummary(entry, label) }
+            override val title = if (opensEntry) entry.name ?: entry.address ?: "" else label
+            override val summary = { context.activitySummary(entry, label.takeIf { opensEntry }) }
             override val icon =
                 @Composable {
                     val size = Modifier.size(SettingsDimension.appIconItemSize)
@@ -242,9 +253,9 @@ private fun ActivityRow(entry: ActivityStore.Entry, app: ApplicationInfo?, devic
     )
 }
 
-/** Like "Chrome · Blocked: domain rule · UDP 53 · Wi-Fi · 12:05 · 3 times". */
-private fun Context.activitySummary(entry: ActivityStore.Entry, label: String): String {
-    val parts = mutableListOf(label)
+/** Like "Chrome · Blocked: domain rule · UDP 53 · Wi-Fi · 12:05 · 3 times", or without the app. */
+private fun Context.activitySummary(entry: ActivityStore.Entry, label: String?): String {
+    val parts = listOfNotNull(label).toMutableList()
     parts +=
         if (entry.allowed) getString(R.string.activity_allowed)
         else getString(R.string.activity_blocked_by, reasonText(entry))

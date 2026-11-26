@@ -108,7 +108,7 @@ final class BlockLists extends Feature {
         mDir = new File(storeDir, "firewall_lists");
     }
 
-    private File namesFile(int slot, int generation) {
+    File namesFile(int slot, int generation) {
         return new File(mDir, slot + "-" + generation + ".names");
     }
 

@@ -10,41 +10,17 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
-import android.net.IpPrefix;
-import android.os.ParcelFileDescriptor;
 import android.util.Pair;
 
 import org.junit.Test;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.nio.file.Files;
 
 /** Lists for all of a user's apps and for one app, as the service keeps them in the maps. */
 public class BlockListsTest extends ServiceTestBase {
     private static final String ADS = "https://lists.test/ads.txt";
     private static final String DOH = "https://lists.test/doh.txt";
-
-    private File content(String... entries) throws IOException {
-        ListContent.Builder builder = new ListContent.Builder();
-        for (String entry : entries) {
-            if (entry.contains("/")) {
-                builder.prefix(new IpPrefix(entry));
-            } else {
-                builder.domain(entry, true);
-            }
-        }
-        File file = File.createTempFile("list", null, mDir);
-        try (FileOutputStream out = new FileOutputStream(file)) {
-            builder.build().write(out);
-        }
-        return file;
-    }
-
-    private static ParcelFileDescriptor open(File file) throws IOException {
-        return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
-    }
 
     private static int firewallAppUid(FirewallService service) {
         return service.knownUid(Pair.create(FirewallService.APP_PACKAGE, 0));

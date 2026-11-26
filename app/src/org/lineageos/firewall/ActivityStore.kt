@@ -8,6 +8,7 @@ package org.lineageos.firewall
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.os.RemoteException
@@ -117,30 +118,31 @@ class ActivityStore private constructor(private val context: Context) :
         val where = allowed?.let { "WHERE allowed = ${if (it) 1 else 0}" } ?: ""
         return readableDatabase
             .rawQuery("SELECT * FROM entries $where ORDER BY last DESC LIMIT $limit", null)
-            .use { cursor ->
-                buildList {
-                    while (cursor.moveToNext()) {
-                        add(
-                            Entry(
-                                key = cursor.getString(0),
-                                uid = cursor.getInt(1),
-                                kind = cursor.getInt(2),
-                                protocol = cursor.getInt(3),
-                                address = cursor.getString(4),
-                                port = cursor.getInt(5),
-                                name = cursor.getString(6),
-                                allowed = cursor.getInt(7) != 0,
-                                reasons = cursor.getInt(8),
-                                network = cursor.getInt(9),
-                                firstMillis = cursor.getLong(10),
-                                lastMillis = cursor.getLong(11),
-                                count = cursor.getLong(12),
-                            )
-                        )
-                    }
-                }
-            }
+            .use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.entry()) } }
     }
+
+    /** The entry with the key, while the log still holds it. */
+    fun entry(key: String): Entry? =
+        readableDatabase.rawQuery("SELECT * FROM entries WHERE key = ?", arrayOf(key)).use {
+            if (it.moveToFirst()) it.entry() else null
+        }
+
+    private fun Cursor.entry() =
+        Entry(
+            key = getString(0),
+            uid = getInt(1),
+            kind = getInt(2),
+            protocol = getInt(3),
+            address = getString(4),
+            port = getInt(5),
+            name = getString(6),
+            allowed = getInt(7) != 0,
+            reasons = getInt(8),
+            network = getInt(9),
+            firstMillis = getLong(10),
+            lastMillis = getLong(11),
+            count = getLong(12),
+        )
 
     /** The bytes the log takes, with its journal. */
     fun size(): Long {

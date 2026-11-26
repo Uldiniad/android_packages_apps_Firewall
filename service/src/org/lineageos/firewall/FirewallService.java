@@ -956,6 +956,12 @@ public final class FirewallService extends SystemService {
         }
 
         @Override
+        public ActivityMatch[] explainActivity(int userId, ActivityEntry entry) {
+            enforceUser(userId);
+            return callAsSystem(() -> Diagnose.explain(FirewallService.this, userId, entry));
+        }
+
+        @Override
         public FirewallGroup[] getGroups(int userId) {
             enforceUser(userId);
             return feature(Groups.class).getGroupsInternal(userId);

@@ -12,6 +12,8 @@ import android.content.Context;
 import android.Manifest;
 import android.content.ContextWrapper;
 import android.net.ConnectivityManager;
+import android.net.IpPrefix;
+import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.SystemClock;
 
@@ -23,6 +25,8 @@ import org.junit.Before;
 import org.junit.Rule;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.time.Clock;
@@ -57,6 +61,27 @@ public abstract class ServiceTestBase {
 
     static FirewallRule[] rules(FirewallRule... rules) {
         return rules;
+    }
+
+    /** A list's content as the firewall app hands it over: domains, and ranges with a slash. */
+    File content(String... entries) throws IOException {
+        ListContent.Builder builder = new ListContent.Builder();
+        for (String entry : entries) {
+            if (entry.contains("/")) {
+                builder.prefix(new IpPrefix(entry));
+            } else {
+                builder.domain(entry, true);
+            }
+        }
+        File file = File.createTempFile("list", null, mDir);
+        try (FileOutputStream out = new FileOutputStream(file)) {
+            builder.build().write(out);
+        }
+        return file;
+    }
+
+    static ParcelFileDescriptor open(File file) throws IOException {
+        return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
     }
 
     /** A clock the tests move, as time can't be waited out here. */

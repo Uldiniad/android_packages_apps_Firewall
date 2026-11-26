@@ -31,11 +31,12 @@ public class ActivityLogTest extends ServiceTestBase {
     private static final int EAI_SYSTEM = 11;
     private static final int EAI_FAIL = 4;
 
+    /** A report of packets of 100 bytes each. */
     private static Maps.Refusal report(boolean allowed, long count, int reasons) {
         long now = SystemClock.elapsedRealtimeNanos();
         return new Maps.Refusal(new Maps.RefusalKey(UID, IFirewall.ACTIVITY_OUT,
                 OsConstants.IPPROTO_UDP, ADDRESS, 443, allowed), count, reasons, now - 1_000_000,
-                now, 0, 0);
+                now, 0, 0, count * 100);
     }
 
     private int userFlags() {
@@ -78,8 +79,9 @@ public class ActivityLogTest extends ServiceTestBase {
         ActivityEntry[] entries = log.takeActivityInternal(0);
         assertEquals(1, entries.length);
         ActivityEntry entry = entries[0];
-        assertEquals(List.of(UID, IFirewall.ACTIVITY_OUT, OsConstants.IPPROTO_UDP, 443, 3L),
-                List.of(entry.uid, entry.kind, entry.protocol, entry.port, entry.count));
+        assertEquals(List.of(UID, IFirewall.ACTIVITY_OUT, OsConstants.IPPROTO_UDP, 443, 3L, 300L),
+                List.of(entry.uid, entry.kind, entry.protocol, entry.port, entry.count,
+                        entry.bytes));
         assertEquals("example.test", entry.name);
         assertEquals("192.0.2.7", entry.address);
         assertTrue(entry.allowed);
@@ -99,7 +101,7 @@ public class ActivityLogTest extends ServiceTestBase {
         // Refused before any packet went out, so the report has the socket's network, no interface.
         service.feature(RefusalCounts.class).onRefusals(List.of(new Maps.Refusal(
                 new Maps.RefusalKey(UID, IFirewall.ACTIVITY_CONNECT, OsConstants.IPPROTO_TCP,
-                        ADDRESS, 443, false), 1, IFirewall.REASON_ADDRESS, now, now, 0, WIFI)));
+                        ADDRESS, 443, false), 1, IFirewall.REASON_ADDRESS, now, now, 0, WIFI, 0)));
         ActivityEntry entry = log.takeActivityInternal(0)[0];
         assertEquals(IFirewall.ACTIVITY_CONNECT, entry.kind);
         assertEquals(FirewallMaps.BLOCK_WIFI, entry.network);

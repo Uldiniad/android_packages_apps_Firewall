@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
  * is low, each new entry takes the oldest one's place instead of growing the log.
  */
 class ActivityStore private constructor(private val context: Context) :
-    SQLiteOpenHelper(context, NAME, null, 1) {
+    SQLiteOpenHelper(context, NAME, null, 2) {
 
     /** An entry as the activity page shows it. */
     data class Entry(
@@ -44,6 +44,7 @@ class ActivityStore private constructor(private val context: Context) :
         val firstMillis: Long,
         val lastMillis: Long,
         val count: Long,
+        val bytes: Long,
     )
 
     private val _changes = MutableStateFlow(0L)
@@ -59,12 +60,17 @@ class ActivityStore private constructor(private val context: Context) :
         db.execSQL(
             "CREATE TABLE entries (key TEXT PRIMARY KEY, uid INTEGER, kind INTEGER, " +
                 "protocol INTEGER, address TEXT, port INTEGER, name TEXT, allowed INTEGER, " +
-                "reasons INTEGER, network INTEGER, first INTEGER, last INTEGER, count INTEGER)"
+                "reasons INTEGER, network INTEGER, first INTEGER, last INTEGER, count INTEGER, " +
+                "bytes INTEGER NOT NULL DEFAULT 0)"
         )
         db.execSQL("CREATE INDEX entries_last ON entries (last)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE entries ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 
     /** Saves the service's new entries; an entry that came before is brought up to date. */
     fun save(entries: List<ActivityEntry>) {
@@ -82,9 +88,10 @@ class ActivityStore private constructor(private val context: Context) :
             }
             for (entry in entries) {
                 db.execSQL(
-                    "INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+                    "INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
                         "ON CONFLICT (key) DO UPDATE SET last = max(last, excluded.last), " +
                         "count = max(count, excluded.count), " +
+                        "bytes = max(bytes, excluded.bytes), " +
                         "reasons = reasons | excluded.reasons, " +
                         "name = coalesce(name, excluded.name), " +
                         "network = CASE excluded.network WHEN 0 THEN network " +
@@ -103,6 +110,7 @@ class ActivityStore private constructor(private val context: Context) :
                         entry.firstMillis,
                         entry.lastMillis,
                         entry.count,
+                        entry.bytes,
                     ),
                 )
             }
@@ -142,6 +150,7 @@ class ActivityStore private constructor(private val context: Context) :
             firstMillis = getLong(10),
             lastMillis = getLong(11),
             count = getLong(12),
+            bytes = getLong(13),
         )
 
     /** The bytes the log takes, with its journal. */

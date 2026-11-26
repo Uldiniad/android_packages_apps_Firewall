@@ -94,6 +94,9 @@ static __always_inline void note_refusal_as(__u32 reported, __u32 uid, __u32 rul
         if (!stats) return;
     }
     __sync_fetch_and_add(&stats->count, 1);
+    // A connect has no bytes, and an atomic add of 0 compiles to a fetch-or, which kernels before
+    // 5.12 refuse.
+    if (path->bytes) __sync_fetch_and_add(&stats->bytes, path->bytes);
     stats->last_ns = now;
     if (stats->reported_ns && now - stats->reported_ns < FW_NS_PER_MINUTE) return;
     stats->reported_ns = now;

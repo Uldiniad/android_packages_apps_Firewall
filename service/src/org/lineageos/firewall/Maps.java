@@ -100,12 +100,13 @@ interface Maps {
 
     /**
      * An app's refusals to or from one far end: how many since the BPF programs first saw it, why
-     * (FW_REFUSED_* bits), the first and last as boot times, and the interface of the report and,
-     * for a connect, the netd network id its socket went out on, 0 when there's none.
+     * (FW_REFUSED_* bits), the first and last as boot times, the interface of the report and,
+     * for a connect, the netd network id its socket went out on, 0 when there's none, and the
+     * bytes its packets carried.
      */
     record Refusal(RefusalKey key, long count, int reasons, long firstNanos, long lastNanos,
-            int ifindex, int netId) {
-        private static final int LONGS = 16;
+            int ifindex, int netId, long bytes) {
+        private static final int LONGS = 17;
 
         /** The refusals the JNI packs, LONGS each. */
         static List<Refusal> fromLongs(long[] values) {
@@ -120,7 +121,7 @@ interface Maps {
                             (int) values[i + 2], InetAddress.getByAddress(address),
                             (int) values[i + 4], values[i + 9] != 0), values[i + 10],
                             (int) values[i + 11], values[i + 12], values[i + 13],
-                            (int) values[i + 14], (int) values[i + 15]));
+                            (int) values[i + 14], (int) values[i + 15], values[i + 16]));
                 } catch (UnknownHostException e) {
                     throw new AssertionError(e);
                 }

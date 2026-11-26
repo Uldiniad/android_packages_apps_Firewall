@@ -136,6 +136,8 @@ struct fw_path {
     __u32 ifindex;
     __u32 mark;
     __u32 owner_uid;
+    // The packet's length from its IP header on, none for a connect.
+    __u32 bytes;
     bool connect;
 };
 
@@ -357,7 +359,7 @@ int egress(struct __sk_buff* skb) {
 
     // Read once: the verifier refuses a second read through a pointer the compiler kept.
     __u32 ifindex = skb->ifindex;
-    struct fw_path path = {.ifindex = ifindex};
+    struct fw_path path = {.ifindex = ifindex, .bytes = skb->len};
     struct l4_info info = {};
     if (ifindex == 1 && !(rules & FW_RULE_NO_LOOPBACK)) {
         if (!loopback_dns_refused(skb, uid, rules, &path, &info)) return 1;
@@ -389,7 +391,7 @@ int ingress(struct __sk_buff* skb) {
     __u32 rules = rules_for(uid, &subject);
     if (!subject) return 1;
     __u32 uflags = user_flags_of(uid / AID_USER_OFFSET);
-    struct fw_path path = {.ifindex = ifindex};
+    struct fw_path path = {.ifindex = ifindex, .bytes = skb->len};
     // Lockdown lets nothing in, whatever the rules.
     bool down = locked_down(uid, rules, uflags);
     bool blocked = down || (rules & FW_RULE_BLOCK_ALL) || locked_app(rules, uflags) ||

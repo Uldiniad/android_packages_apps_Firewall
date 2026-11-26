@@ -194,7 +194,8 @@ struct fw_refusal_key {
     __u32 addr[4];
 };
 
-// Every refusal is counted; the reasons are worked out when it's reported. Times are boot times.
+// Every refusal is counted, with its packets' bytes (none for a connect); the reasons are worked
+// out when it's reported. Times are boot times.
 struct fw_refusal_stats {
     __u64 count;
     __u64 first_ns;
@@ -202,6 +203,7 @@ struct fw_refusal_stats {
     __u64 reported_ns;
     __u32 reasons;
     __u32 unused;
+    __u64 bytes;
 };
 
 // A report to the service: the first refusal of a key, then at most one a minute, with the

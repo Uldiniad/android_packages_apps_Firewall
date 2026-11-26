@@ -230,6 +230,7 @@ final class ActivityLog extends Feature {
             entry.firstMillis = bootToWall + report.firstNanos() / 1_000_000;
             entry.lastMillis = bootToWall + report.lastNanos() / 1_000_000;
             entry.count = report.count();
+            entry.bytes = report.bytes();
             addLocked(user, entry);
         }
     }

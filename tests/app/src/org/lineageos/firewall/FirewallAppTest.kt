@@ -22,6 +22,7 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.service.notification.StatusBarNotification
 import android.text.format.DateFormat
+import android.text.format.Formatter
 import android.view.KeyEvent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -897,6 +898,8 @@ class FirewallAppTest {
                 it.send(DatagramPacket(byteArrayOf(1), 1, InetAddress.getByName(SENT_TO), 9))
             }
             find(SENT_TO)
+            // An IPv4 header of 20 bytes, UDP's 8 and the one byte sent.
+            find(By.textContains(Formatter.formatShortFileSize(context, 29)), "its bytes")
             findDescribed(text("abc_action_menu_overflow_description")).click()
             find(text("clear_activity")).click()
             find(text("clear_activity_title"))

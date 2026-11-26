@@ -117,6 +117,7 @@ int hotspot(struct __sk_buff* skb) {
     struct fw_path path = {.mark = (upstream ? *upstream : 0) | FW_MARK_EXPLICIT |
                                    FW_MARK_PROTECTED_FROM_VPN,
                            .owner_uid = row,
+                           .bytes = skb->len - ETH_HLEN,
                            .connect = true};
     struct l4_info info = {};
     bool parsed = parse_l4_at(skb, ETH_HLEN, &info, true);

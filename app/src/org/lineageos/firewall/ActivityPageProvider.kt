@@ -281,6 +281,7 @@ private fun Context.activitySummary(entry: ActivityStore.Entry, label: String?):
             .toString()
     parts +=
         resources.getQuantityString(R.plurals.activity_count, entry.count.toInt(), entry.count)
+    if (entry.bytes > 0) parts += Formatter.formatShortFileSize(this, entry.bytes)
     return parts.joinToString(getString(R.string.activity_separator))
 }
 

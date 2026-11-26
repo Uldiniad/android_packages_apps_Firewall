@@ -44,16 +44,18 @@ jobject nativeRefusalsFd(JNIEnv* env, jclass) {
     return descriptor;
 }
 
-// A refusal, or what was let through, as 16 longs: uid, direction, protocol, IPv6 flag, port and
+// A refusal, or what was let through, as 17 longs: uid, direction, protocol, IPv6 flag, port and
 // the address words in host order, whether it was let through, then its count, reasons, first and
-// last boot times, and its report's interface and, for a connect, network id, 0 when there's none.
+// last boot times, its report's interface and, for a connect, network id, 0 when there's none, and
+// the bytes its packets carried.
 void pack(std::vector<jlong>& values, const fw_refusal_key& key, const fw_refusal_stats& stats,
           uint32_t ifindex, uint32_t netId) {
     values.insert(values.end(), {key.uid, key.direction, key.protocol, key.v6, key.port,
                                  ntohl(key.addr[0]), ntohl(key.addr[1]), ntohl(key.addr[2]),
                                  ntohl(key.addr[3]), key.allowed, static_cast<jlong>(stats.count),
                                  stats.reasons, static_cast<jlong>(stats.first_ns),
-                                 static_cast<jlong>(stats.last_ns), ifindex, netId});
+                                 static_cast<jlong>(stats.last_ns), ifindex, netId,
+                                 static_cast<jlong>(stats.bytes)});
 }
 
 jlongArray toArray(JNIEnv* env, const std::vector<jlong>& values) {

@@ -31,4 +31,5 @@ parcelable ActivityEntry {
     long firstMillis;
     long lastMillis;
     long count;
+    long bytes;
 }

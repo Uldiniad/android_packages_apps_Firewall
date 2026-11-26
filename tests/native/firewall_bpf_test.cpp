@@ -1281,4 +1281,14 @@ TEST_F(FirewallBpfTest, SafeSearchHasTheEnginesSafeNamesLookedUpInstead) {
     EXPECT_FALSE(lookupNameFor(kTestUid, "mail.google.test", name, sizeof(name)));
 }
 
+TEST_F(FirewallBpfTest, AnEntryCountsTheBytesOfItsPackets) {
+    setRules(0);
+    setUserFlags(FW_USER_LOG);
+    fw_refusal_key out = clearedRefusal(FW_REFUSAL_OUT, AF_INET6, "ff02::1", kPort, true);
+    EXPECT_EQ(0, sendMulticast(kPort, std::vector<uint8_t>(100)));
+    EXPECT_EQ(0, sendMulticast(kPort, std::vector<uint8_t>(20)));
+    // Each as IPv6 carries it: a 40-byte header, UDP's 8 bytes and the payload.
+    EXPECT_EQ(2u * (40 + 8) + 100 + 20, refusalStats(out).bytes);
+}
+
 }  // namespace

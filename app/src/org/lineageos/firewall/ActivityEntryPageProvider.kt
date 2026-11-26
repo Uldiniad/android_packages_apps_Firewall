@@ -134,6 +134,7 @@ private fun ActivityStore.Entry.toParcel() =
         it.firstMillis = firstMillis
         it.lastMillis = lastMillis
         it.count = count
+        it.bytes = bytes
     }
 
 /** What matched, like "List: OISD big" or "Address rule: 192.0.2.7 · TCP 443". */

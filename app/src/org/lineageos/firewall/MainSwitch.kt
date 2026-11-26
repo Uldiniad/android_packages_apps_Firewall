@@ -37,5 +37,6 @@ fun FirewallMainSwitch() {
             }
         }
     )
+    OffForAWhilePreference(admin)
     if (!admin) Footer(stringResource(R.string.main_switch_admin_only))
 }

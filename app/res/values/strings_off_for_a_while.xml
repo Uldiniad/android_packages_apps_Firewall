@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources>
+    <!-- Under the main switch: turns the firewall off for a while, then it comes back on itself -->
+    <string name="off_for_a_while">Turn off for a while</string>
+    <!-- Opens a time picker for when the firewall comes back on -->
+    <string name="off_choose_time">Choose a time…</string>
+</resources>

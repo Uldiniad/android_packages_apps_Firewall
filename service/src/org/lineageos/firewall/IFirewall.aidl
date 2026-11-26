@@ -178,4 +178,9 @@ interface IFirewall {
 
     /** The current rules, lists and switches that account for the user's refused entry. */
     ActivityMatch[] explainActivity(int userId, in ActivityEntry entry);
+
+    /** Turns the firewall off until the wall-clock time, then back on by itself; admins only. */
+    void turnOffUntil(long untilMillis);
+    /** When the firewall comes back on by itself, as a wall-clock time, or 0 when it won't. */
+    long getOffUntil();
 }

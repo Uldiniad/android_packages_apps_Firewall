@@ -879,13 +879,30 @@ public final class FirewallService extends SystemService {
 
         @Override
         public void setEnabled(boolean enabled) {
+            enforceAdmin();
+            runAsSystem(() -> feature(MainSwitch.class).setEnabledInternal(enabled));
+        }
+
+        @Override
+        public void turnOffUntil(long untilMillis) {
+            enforceAdmin();
+            runAsSystem(() -> feature(MainSwitch.class).turnOffUntilInternal(untilMillis));
+        }
+
+        @Override
+        public long getOffUntil() {
+            enforcePermission();
+            return feature(MainSwitch.class).offUntilInternal();
+        }
+
+        /** The main switch is for the whole phone, so only an admin user can change it. */
+        private void enforceAdmin() {
             enforcePermission();
             int userId = UserHandle.getUserHandleForUid(Binder.getCallingUid()).getIdentifier();
             if (!callAsSystem(() -> mContext.getSystemService(UserManager.class)
                     .isUserAdmin(userId))) {
                 throw new SecurityException("Only an admin user can turn the firewall on or off");
             }
-            runAsSystem(() -> feature(MainSwitch.class).setEnabledInternal(enabled));
         }
 
         @Override

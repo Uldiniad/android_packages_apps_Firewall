@@ -14,6 +14,8 @@ import android.util.Pair;
 import org.junit.Test;
 import org.mockito.InOrder;
 
+import java.time.Instant;
+
 import static android.net.ConnectivityManager.FIREWALL_CHAIN_OEM_DENY_1;
 import static android.net.ConnectivityManager.FIREWALL_RULE_DENY;
 import static org.mockito.AdditionalMatchers.aryEq;
@@ -86,5 +88,26 @@ public class MainSwitchTest extends ServiceTestBase {
         assertFalse(restarted.feature(MainSwitch.class).isEnabledInternal());
         assertFalse(mMaps.attached);
         assertTrue(mMaps.uids.isEmpty());
+    }
+
+    @Test
+    public void offForAWhileComesBackOnAtItsTimeEvenAcrossARestart() throws Exception {
+        FirewallService service = start();
+        long until = mClock.millis() + 15 * 60_000;
+        service.feature(MainSwitch.class).turnOffUntilInternal(until);
+        assertFalse(mMaps.attached);
+        awaitSaved(service, saved -> saved.feature(MainSwitch.class).offUntil == until);
+
+        // Before its time a restart keeps it off, still due back at the same time.
+        MainSwitch restarted = start().feature(MainSwitch.class);
+        restarted.onTime();
+        assertFalse(restarted.isEnabledInternal());
+        assertEquals(until, restarted.offUntilInternal());
+
+        mClock.now = Instant.ofEpochMilli(until);
+        restarted.onTime();
+        assertTrue(restarted.isEnabledInternal());
+        assertEquals(0, restarted.offUntilInternal());
+        assertTrue(mMaps.attached);
     }
 }

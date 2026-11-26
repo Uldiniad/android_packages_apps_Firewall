@@ -131,7 +131,7 @@ private fun SchedulePage(packageName: String, userId: Int) {
     }
 }
 
-private fun pickTime(context: Context, minute: Int, onPicked: (Int) -> Unit) {
+internal fun pickTime(context: Context, minute: Int, onPicked: (Int) -> Unit) {
     TimePickerDialog(
             context,
             { _, hour, picked -> onPicked(hour * 60 + picked) },
@@ -237,7 +237,7 @@ private fun PausePreference(packageName: String, userId: Int, rule: AppRule?) {
 }
 
 /** How long a pause lasts, in minutes, with its name. */
-private val PAUSES =
+internal val PAUSES =
     listOf(
         15 to R.string.pause_15_minutes,
         60 to R.string.pause_1_hour,

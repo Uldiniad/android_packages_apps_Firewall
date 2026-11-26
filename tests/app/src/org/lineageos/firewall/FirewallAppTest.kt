@@ -21,6 +21,7 @@ import android.platform.uiautomatoraccessibility.PlatformUiAutomatorAccessibilit
 import android.provider.MediaStore
 import android.provider.Settings
 import android.service.notification.StatusBarNotification
+import android.text.format.DateFormat
 import android.view.KeyEvent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -43,6 +44,7 @@ import com.google.android.apps.common.testing.accessibility.framework.matcher.El
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.util.Date
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.function.BooleanSupplier
@@ -324,6 +326,27 @@ class FirewallAppTest {
                 assertFalse(device.hasObject(By.text(text("firewall_not_running"))))
                 find(text("main_switch_title")).click()
                 waitUntil { firewall.isEnabled }
+            }
+        } finally {
+            firewall.setEnabled(true)
+        }
+    }
+
+    @Test
+    fun theFirewallOffForAWhileSaysWhenItsBackAndComesBackOn() {
+        try {
+            onPage("AppList") {
+                find(text("off_for_a_while")).click()
+                find(text("pause_15_minutes")).click()
+                waitUntil { !firewall.isEnabled }
+                val now = System.currentTimeMillis()
+                val until = firewall.offUntil
+                assertTrue(until in now + 14 * 60_000L..now + 15 * 60_000L)
+                find(text("pause_until", DateFormat.getTimeFormat(context).format(Date(until))))
+                find(text("off_for_a_while")).click()
+                find(text("pause_off")).click()
+                waitUntil { firewall.isEnabled }
+                assertEquals(0L, firewall.offUntil)
             }
         } finally {
             firewall.setEnabled(true)

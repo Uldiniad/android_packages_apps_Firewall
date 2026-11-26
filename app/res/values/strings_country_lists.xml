@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- On the page that adds a list: opens a page of every country and region, each with a list of its IP addresses. -->
+    <string name="list_countries">Countries and regions</string>
+    <string name="list_countries_summary">ipverse\'s lists of the IP addresses registered to each</string>
+    <!-- Shown when a search of the countries and regions finds none. -->
+    <string name="list_countries_none">No countries or regions found</string>
+    <string name="list_countries_footer">Each list holds the IP addresses registered to the country or region. Sites and apps often use servers in other countries, so a list can miss some from the country and block some from elsewhere.</string>
+    <!-- The title of a country's or region's list, such as "IP addresses in Andorra". -->
+    <string name="list_country">IP addresses in <xliff:g id="country" example="Andorra">%1$s</xliff:g></string>
+</resources>

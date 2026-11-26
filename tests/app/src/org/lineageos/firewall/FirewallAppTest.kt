@@ -45,6 +45,7 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.util.Date
+import java.util.Locale
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.function.BooleanSupplier
@@ -138,7 +139,8 @@ class FirewallAppTest {
                     it.value in TEST_VALUES || it.port in TEST_VALUES
                 }
         )
-        for (list in firewall.getLists(userId).filter { it.title == LIST_FILE }) {
+        val lists = firewall.getLists(userId)
+        for (list in lists.filter { it.title == LIST_FILE || it.url == COUNTRY_LIST }) {
             firewall.removeList(userId, list.packageName, list.id)
         }
         firewall.setNewInstallsBlocked(userId, newAppsBlocked)
@@ -496,6 +498,31 @@ class FirewallAppTest {
             find(text("add")).click()
             scrollTo(text("list_address_invalid"))
             assertTrue(firewall.getLists(userId).none { it.url?.startsWith("http:") == true })
+        }
+
+    @Test
+    fun aCountryPickedByNameAddsTheListOfItsAddresses() {
+        val name = Locale.Builder().setRegion(COUNTRY).build().displayCountry
+        onPage("AddList/$userId") {
+            scrollTo(text("list_countries")).click()
+            search(name)
+            find(By.text(name).clazz(TEXT_VIEW), "\"$name\" row").click()
+            waitUntil {
+                firewall.getLists(userId).any { it.url == COUNTRY_LIST && it.packageName == null }
+            }
+            find(text("list_added"))
+        }
+        onPage("AllAppsRules/$userId") {
+            find(text("kind_lists")).click()
+            find(text("list_country", name))
+        }
+    }
+
+    @Test
+    fun aRegionWithoutAListIsNotOffered() =
+        onPage("CountryLists/$userId/*") {
+            search(Locale.Builder().setRegion("PN").build().displayCountry)
+            find(text("list_countries_none"))
         }
 
     @Test
@@ -1267,6 +1294,10 @@ class FirewallAppTest {
         const val DOWNLOAD_DIR = "/sdcard/Download"
         const val NOT_AN_EXPORT = "not-firewall-rules.xml"
         const val LIST_FILE = "firewall-test-list.txt"
+        const val COUNTRY = "AD"
+        const val COUNTRY_LIST =
+            "https://raw.githubusercontent.com/ipverse/country-ip-blocks/master/country/ad/" +
+                "aggregated.json"
         const val GROUP = "Firewall test group"
         // A device on no hotspot, with rules of its own.
         const val TEST_DEVICE = "02:00:00:00:00:42"

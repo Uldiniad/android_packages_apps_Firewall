@@ -149,6 +149,13 @@ private fun AddListPage(userId: Int, packageName: String?) {
                     }
                 )
             }
+            Preference(
+                object : PreferenceModel {
+                    override val title = stringResource(R.string.list_countries)
+                    override val summary = { context.getString(R.string.list_countries_summary) }
+                    override val onClick = CountryListsPageProvider.navigator(userId, packageName)
+                }
+            )
         }
         Category(title = stringResource(R.string.lists_own)) {
             SettingsOutlinedTextField(
@@ -181,7 +188,7 @@ private fun AddListPage(userId: Int, packageName: String?) {
 }
 
 /** Subscribes the scope to the list and downloads it; false, with a message, if it couldn't. */
-private suspend fun Context.addList(
+internal suspend fun Context.addList(
     userId: Int,
     packageName: String?,
     url: String,

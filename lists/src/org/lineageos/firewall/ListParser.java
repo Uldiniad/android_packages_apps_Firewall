@@ -8,6 +8,7 @@ package org.lineageos.firewall;
 import android.net.InetAddresses;
 import android.net.IpPrefix;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -22,8 +23,8 @@ import java.util.regex.Pattern;
 
 /**
  * Reads a downloaded list as data, line by line: hosts files, plain or wildcard domains, adblock
- * domain rules, addresses and ranges, and Spamhaus's JSON lines. A list can only block, so allow
- * rules and anything else it doesn't know are skipped.
+ * domain rules, addresses and ranges, Spamhaus's JSON lines and ipverse's JSON country blocks. A
+ * list can only block, so allow rules and anything else it doesn't know are skipped.
  */
 final class ListParser {
     /** Where the entries a list blocks go, as they're read. */
@@ -64,6 +65,7 @@ final class ListParser {
     private static final Pattern ADBLOCK_DOMAIN =
             Pattern.compile("\\|\\|([^/^$|*\\s]+)\\^(?:\\$important)?");
     private static final Pattern SPACES = Pattern.compile("\\s+");
+    private static final List<String> FAMILIES = List.of("ipv4", "ipv6");
 
     private ListParser() {}
 
@@ -89,6 +91,11 @@ final class ListParser {
             if (first == '#' || first == '!' || first == '[') {
                 if (header) readHeaderField(line, counts);
                 continue;
+            }
+            if (first == '{' && header && !line.endsWith("}")) {
+                String rest = reader.rest();
+                if (rest != null) readDocument(line + "\n" + rest, maxEntries, counts, entries);
+                break;
             }
             header = false;
             if (first == '{') {
@@ -134,6 +141,26 @@ final class ListParser {
         counts.lines++;
         String cidr = json.optString("cidr", null);
         if (cidr != null) takePrefix(cidr, counts, entries);
+    }
+
+    // ipverse's country blocks, one document over many lines whose prefixes are the ranges.
+    private static void readDocument(String text, int maxEntries, Counts counts,
+            Entries entries) {
+        JSONObject prefixes;
+        try {
+            prefixes = new JSONObject(text).getJSONObject("prefixes");
+        } catch (JSONException e) {
+            counts.lines++;
+            return;
+        }
+        for (String family : FAMILIES) {
+            JSONArray ranges = prefixes.optJSONArray(family);
+            if (ranges == null) continue;
+            for (int i = 0; i < ranges.length() && counts.taken <= maxEntries; i++) {
+                counts.lines++;
+                takePrefix(ranges.optString(i), counts, entries);
+            }
+        }
     }
 
     private static void readLine(String line, boolean plainSubdomains, Counts counts,
@@ -290,6 +317,24 @@ final class ListParser {
                 }
             }
             return tooLong || mLine.length() > 0 ? mLine.toString() : null;
+        }
+
+        /** What's left of the list as it is, however long its lines; null past the budget. */
+        String rest() throws IOException {
+            StringBuilder rest = new StringBuilder().append(mBuffer, mPos, mEnd - mPos);
+            mPos = mEnd;
+            while (!mEof) {
+                int n = mIn.read(mBuffer);
+                if (n < 0) break;
+                mRead += n;
+                if (mRead > mBudget) {
+                    overBudget = true;
+                    return null;
+                }
+                rest.append(mBuffer, 0, n);
+            }
+            mEof = true;
+            return rest.toString();
         }
     }
 }

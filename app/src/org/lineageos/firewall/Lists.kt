@@ -34,6 +34,7 @@ import com.android.settingslib.spa.widget.preference.ZeroStatePreference
 import com.android.settingslib.spa.widget.ui.Category
 import com.android.settingslib.spa.widget.ui.LazyCategory
 import com.android.settingslib.spa.widget.ui.SettingsIcon
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 /** A list the firewall suggests, for all of a user's apps or for one app. */
@@ -110,12 +111,36 @@ enum class SuggestedList(
 
 private const val HAGEZI = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main"
 
+/** ipverse's lists of the IP addresses registered to each country or region (CC0 1.0). */
+private const val COUNTRY_LISTS =
+    "https://raw.githubusercontent.com/ipverse/country-ip-blocks/master/country/"
+
+/** The address of the list of the country's or region's IP addresses, by its ISO 3166 code. */
+fun countryListUrl(country: String) =
+    "$COUNTRY_LISTS${country.lowercase(Locale.ROOT)}/aggregated.json"
+
+/** The ISO 3166 code of the country or region whose IP addresses the list holds, if any. */
+fun listCountry(url: String?): String? =
+    url?.takeIf { it.startsWith(COUNTRY_LISTS) }
+        ?.substring(COUNTRY_LISTS.length)
+        ?.substringBefore('/')
+        ?.uppercase(Locale.ROOT)
+        ?.takeIf { it in Locale.getISOCountries() }
+
+/** The country's or region's name in the phone's language. */
+fun countryName(country: String): String =
+    Locale.Builder().setRegion(country).build().displayCountry
+
 /** Every list of the user, for all of their apps and for each app. */
 fun Firewall.lists(userId: Int) = load { getLists(userId).toList() }
 
-/** What the app calls a list: the suggestion's name, the list's own, or its address's host. */
+/**
+ * What the app calls a list: the suggestion's name, its country's, the list's own, or its
+ * address's host.
+ */
 fun Context.listTitle(list: FirewallList): String =
     SuggestedList.entries.find { it.url == list.url }?.let { getString(it.title) }
+        ?: listCountry(list.url)?.let { getString(R.string.list_country, countryName(it)) }
         ?: list.title?.takeIf { it.isNotBlank() }
         ?: list.url?.let { Uri.parse(it).host }
         ?: list.id

@@ -123,6 +123,29 @@ public class ListParserTest {
     }
 
     @Test
+    public void readsACountrysBlocksWhoseRangesRunPastTheLongestLine() throws IOException {
+        StringBuilder ranges = new StringBuilder();
+        for (int i = 0; i < 400; i++) {
+            ranges.append("\"45.").append(i / 256).append('.').append(i % 256).append(".0/24\", ");
+        }
+        ListParser.Result result = parse(false,
+                "{",
+                "  \"country\": \"Andorra\",",
+                "  \"countryCode\": \"AD\",",
+                "  \"prefixes\": {",
+                "    \"ipv4\": [ " + ranges + "\"10.0.0.0/8\" ],",
+                "    \"ipv6\": [ \"2a01:fb00::/29\" ]",
+                "  }",
+                "}");
+        assertEquals("45.0.0.0/24", mEntries.get(0));
+        assertEquals("2a01:fb00::/29", mEntries.get(400));
+        assertEquals(402, result.lines());
+        assertEquals(401, result.taken());
+        assertEquals(1, result.refused());
+        assertFalse(result.tooBig());
+    }
+
+    @Test
     public void stopsPastItsLimits() throws IOException {
         ListParser.Result many = ListParser.parse(
                 new StringReader("a.example\nb.example\nc.example\n"), false, 2, 1000, mSink);

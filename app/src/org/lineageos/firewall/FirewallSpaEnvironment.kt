@@ -26,6 +26,7 @@ class FirewallSpaEnvironment(context: Context) : SpaEnvironment(context) {
                     ExportImportPageProvider,
                     AddListPageProvider,
                     AddAppListPageProvider,
+                    CountryListsPageProvider,
                     GroupsPageProvider,
                     GroupPageProvider,
                     GroupAppsPageProvider,

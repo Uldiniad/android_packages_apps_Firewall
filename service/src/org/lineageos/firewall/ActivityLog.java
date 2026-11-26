@@ -175,6 +175,12 @@ final class ActivityLog extends Feature {
             int reasons = lookup.result() == EAI_FAIL ? IFirewall.REASON_ALL
                     : lookup.result() == EAI_SYSTEM ? IFirewall.REASON_DOMAIN : 0;
             if (reasons == 0) continue;
+            // The resolver tells only that the firewall refused it, which the lock may have.
+            LockedBlocking locked = mService.feature(LockedBlocking.class);
+            if (reasons == IFirewall.REASON_DOMAIN && locked != null) {
+                int why = locked.lockedReasonsLocked(lookup.uid());
+                if (why != 0) reasons = why;
+            }
             String flow = user + "/" + lookup.uid() + "/" + lookup.name();
             ActivityEntry entry = mLatestLookups.get(flow);
             if (entry == null || now - entry.lastMillis > LOOKUP_REPEAT_MS) {

@@ -85,6 +85,14 @@
 #define FW_SCOPE_INCOMING (FW_SCOPE_INCOMING_BLOCKS | FW_SCOPE_INCOMING_ALLOWS)
 // In user_flags: the user's activity log is on, so what the programs let through is reported too.
 #define FW_USER_LOG (1u << 23)
+// In user_flags: the user is locked, as the screen is off, the lock screen shows or another user
+// is in front, and all of the user's apps are blocked then, but those with FW_RULE_ALLOW_LOCKED.
+// The rule bits share these positions, as uid_rules and user_flags are never mixed there.
+#define FW_USER_LOCKED (1u << 24)
+#define FW_USER_BLOCK_LOCKED (1u << 25)
+// Set for apps blocked while their user is locked, and for those let through then.
+#define FW_RULE_BLOCK_LOCKED (1u << 24)
+#define FW_RULE_ALLOW_LOCKED (1u << 25)
 #define FW_INCOMING_SCOPE (1u << 30)
 // A list's domains are in a file netd maps: FW_LISTS_DIR "<slot>-<generation>.names", which holds
 // FW_LIST_NAMES_MAGIC, a count, and the sorted keys of fw_domain_hash with the subdomain bit.
@@ -152,6 +160,8 @@ enum fw_counter {
 #define FW_REFUSED_USER_DOMAIN (1u << 12)
 #define FW_REFUSED_INCOMING (1u << 13)
 #define FW_REFUSED_USER_INCOMING (1u << 14)
+#define FW_REFUSED_LOCKED (1u << 15)
+#define FW_REFUSED_USER_LOCKED (1u << 16)
 
 enum fw_refusal_direction {
     FW_REFUSAL_CONNECT,

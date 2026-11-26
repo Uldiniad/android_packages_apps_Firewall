@@ -70,6 +70,18 @@ static __always_inline __u32 rules_for(__u32 uid, bool* subject) {
     return rules && *subject ? *rules : 0;
 }
 
+// Whether the app's own switches block it as its user is locked.
+static __always_inline bool locked_app(__u32 rules, __u32 uflags) {
+    return (rules & FW_RULE_BLOCK_LOCKED) && (uflags & FW_USER_LOCKED);
+}
+
+// Whether the rules for all of the user's apps block the app as the user is locked. Devices on
+// the phone's hotspot follow the rules for all apps, but not the phone's lock.
+static __always_inline bool locked_user(__u32 uid, __u32 rules, __u32 uflags) {
+    return is_app_uid(uid) && (uflags & FW_USER_BLOCK_LOCKED) && (uflags & FW_USER_LOCKED) &&
+           !(rules & FW_RULE_ALLOW_LOCKED);
+}
+
 static __always_inline __u64 iface_network(__u32 ifindex) {
     __u64* net = bpf_map_lookup_elem(&iface_transport, &ifindex);
     return net ? *net : 0;
@@ -211,12 +223,9 @@ static __always_inline bool cut_off(__u8 direction, __u32 rules, const struct l4
 
 #include "refusal_counts.h"
 
-// The user's flags before anything read them; real flags never have every bit set.
-#define FW_FLAGS_UNREAD 0xffffffffu
-
 // What the rules for all of the user's apps decide for a packet out that its app's own didn't:
-// their allows, with the replies their incoming allows let through if wanted, its own DNS while
-// their domain rules apply, their blocks and their lists.
+// their allows, with the replies their incoming allows let through if wanted, their block while
+// locked, its own DNS while their domain rules apply, their blocks and their lists.
 static __always_inline bool user_rules_drop(__u32 uid, __u32 rules, __u32 uflags, bool dns,
                                             bool replies, struct l4_info* info,
                                             const struct fw_path* path, __u32* counter) {
@@ -229,6 +238,10 @@ static __always_inline bool user_rules_drop(__u32 uid, __u32 rules, __u32 uflags
         incoming_replies(user_scope, info, path)) {
         count(FW_C_ALLOWED_BY_RULE);
         return false;
+    }
+    if (locked_user(uid, rules, uflags)) {
+        *counter = FW_C_EGRESS_DROP_ALL;
+        return true;
     }
     if ((uflags & FW_SCOPE_DOMAINS) &&
         (dns || listed(&ip4_block, &ip6_block, FW_DOH_SCOPE, 0, info, path))) {
@@ -248,10 +261,10 @@ static __always_inline bool user_rules_drop(__u32 uid, __u32 rules, __u32 uflags
 // What an app's own rules decide for a packet out: 1 drops it, under the counter, 0 lets it
 // through, and -1 leaves it to the rules after them. Incoming allows let the app's replies through
 // if wanted.
-static __always_inline int own_verdict(__u32 uid, __u32 rules, bool replies, bool parsed,
-                                       const struct fw_path* path, struct l4_info* info,
-                                       __u32* counter) {
-    bool blocked_all = rules & FW_RULE_BLOCK_ALL;
+static __always_inline int own_verdict(__u32 uid, __u32 rules, __u32 uflags, bool replies,
+                                       bool parsed, const struct fw_path* path,
+                                       struct l4_info* info, __u32* counter) {
+    bool blocked_all = (rules & FW_RULE_BLOCK_ALL) || locked_app(rules, uflags);
     // Apps kept off loopback are blocked on it as on a network.
     bool blocked_here = path->ifindex == 1 || network_blocked(uid, rules, path);
     *counter = blocked_all ? FW_C_EGRESS_DROP_ALL : FW_C_EGRESS_DROP_TRANSPORT;
@@ -285,18 +298,15 @@ static __always_inline int own_verdict(__u32 uid, __u32 rules, bool replies, boo
     return -1;
 }
 
-// Whether a packet out is dropped, and the counter it's dropped under, with the user's flags if it
-// read them.
+// Whether a packet out is dropped, and the counter it's dropped under.
 static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 rules,
-                                        const struct fw_path* path, struct l4_info* info,
-                                        bool* parsed, __u32* counter, __u32* user_flags) {
+                                        __u32 uflags, const struct fw_path* path,
+                                        struct l4_info* info, bool* parsed, __u32* counter) {
     *parsed = parse_l4(skb, info, true);
-    int own = own_verdict(uid, rules, true, *parsed, path, info, counter);
+    int own = own_verdict(uid, rules, uflags, true, *parsed, path, info, counter);
     if (own >= 0) return own;
     if (!*parsed) return false;
     bool dns = info->port == 53 || info->port == 853;
-    __u32 uflags = user_flags_of(uid / AID_USER_OFFSET);
-    *user_flags = uflags;
     return user_rules_drop(uid, rules, uflags, dns, true, info, path, counter);
 }
 
@@ -340,17 +350,14 @@ int egress(struct __sk_buff* skb) {
         note_refusal(uid, rules, FW_REFUSAL_OUT, false, &info, true, &path);
         return 0;
     }
+    __u32 uflags = user_flags_of(uid / AID_USER_OFFSET);
     bool parsed = false;
     __u32 counter;
-    __u32 uflags = FW_FLAGS_UNREAD;
-    bool drop = egress_drop(skb, uid, rules, &path, &info, &parsed, &counter, &uflags);
+    bool drop = egress_drop(skb, uid, rules, uflags, &path, &info, &parsed, &counter);
     if (drop) {
         count(counter);
-    } else {
-        if (!parsed) return 1;
-        // Read here only when the app's own rules let the packet through early.
-        if (uflags == FW_FLAGS_UNREAD) uflags = user_flags_of(uid / AID_USER_OFFSET);
-        if (!(uflags & FW_USER_LOG)) return 1;
+    } else if (!parsed || !(uflags & FW_USER_LOG)) {
+        return 1;
     }
     note_refusal(uid, rules, FW_REFUSAL_OUT, !drop, &info, parsed, &path);
     return !drop;
@@ -369,17 +376,22 @@ int ingress(struct __sk_buff* skb) {
     if (!subject) return 1;
     __u32 uflags = user_flags_of(uid / AID_USER_OFFSET);
     struct fw_path path = {.ifindex = ifindex};
-    bool blocked = (rules & FW_RULE_BLOCK_ALL) || network_blocked(uid, rules, &path);
-    if (!blocked && !((rules | uflags) & (FW_SCOPE_INCOMING | FW_USER_LOG))) return 1;
+    bool blocked = (rules & FW_RULE_BLOCK_ALL) || locked_app(rules, uflags) ||
+                   network_blocked(uid, rules, &path);
+    bool locked = !blocked && locked_user(uid, rules, uflags);
+    if (!blocked && !locked && !((rules | uflags) & (FW_SCOPE_INCOMING | FW_USER_LOG))) return 1;
     struct l4_info info = {};
     bool parsed = parse_l4(skb, &info, false);
     int incoming = parsed ? incoming_verdict(skb, uid, rules, uflags, blocked, &info, &path) : -1;
     __u8 direction = FW_REFUSAL_INCOMING;
     bool allowed = incoming == 1;
     if (incoming < 0) {
-        // A blocked app still hears back from what its allow rules let it reach.
-        allowed = !blocked ||
-                  ((rules & FW_SCOPE_ALLOWS) && parsed && scope_allows(uid, rules, &info, &path));
+        // A blocked app still hears back from what its allow rules let it reach, and one the
+        // rules for all apps block while locked from what theirs do.
+        allowed = (!blocked && !locked) ||
+                  ((rules & FW_SCOPE_ALLOWS) && parsed && scope_allows(uid, rules, &info, &path)) ||
+                  (locked && (uflags & FW_SCOPE_ALLOWS) && parsed &&
+                   scope_allows(FW_USER_SCOPE | (uid / AID_USER_OFFSET), uflags, &info, &path));
         if (allowed && !(parsed && tcp_opens(skb, &info))) return 1;
         if (!allowed) direction = FW_REFUSAL_IN;
     }
@@ -427,18 +439,19 @@ static __always_inline int connect_verdict(struct bpf_sock_addr* ctx, bool v6) {
     // Loopback isn't any network's: only the rules for addresses and ports apply to it, unless
     // the app is kept off it.
     bool off = cut_off(FW_REFUSAL_CONNECT, rules, &info, &path);
-    bool blocked =
-            (off && ((rules & FW_RULE_BLOCK_ALL) || network_blocked(uid, rules, &path))) ||
-            ((rules & FW_SCOPE_BLOCKS) && scope_blocks(uid, rules, &info, &path, NULL));
+    __u32 user = uid / AID_USER_OFFSET;
+    __u32 uflags = user_flags_of(user);
+    bool blocked = (off && ((rules & FW_RULE_BLOCK_ALL) || locked_app(rules, uflags) ||
+                            network_blocked(uid, rules, &path))) ||
+                   ((rules & FW_SCOPE_BLOCKS) && scope_blocks(uid, rules, &info, &path, NULL));
     if (!blocked) {
-        __u32 user = uid / AID_USER_OFFSET;
         __u32 user_scope = FW_USER_SCOPE | user;
-        __u32 uflags = user_flags_of(user);
         if ((uflags & FW_SCOPE_ALLOWS) && scope_allows(user_scope, uflags, &info, &path)) {
             return 1;
         }
-        blocked =
-                (uflags & FW_SCOPE_BLOCKS) && scope_blocks(user_scope, uflags, &info, &path, NULL);
+        blocked = (off && locked_user(uid, rules, uflags)) ||
+                  ((uflags & FW_SCOPE_BLOCKS) &&
+                   scope_blocks(user_scope, uflags, &info, &path, NULL));
         if (!blocked) blocked = lists_block(uid, rules, user_scope, uflags, &info);
     }
     if (!blocked) return 1;

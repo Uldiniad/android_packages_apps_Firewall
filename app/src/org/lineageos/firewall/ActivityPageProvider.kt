@@ -312,6 +312,7 @@ private val REASONS: List<Reason> =
         Reason(IFirewall.REASON_DNS, IFirewall.REASON_USER_DNS, R.string.reason_dns),
         Reason(IFirewall.REASON_LAN, 0, R.string.reason_lan),
         Reason(IFirewall.REASON_NETWORK, 0, R.string.reason_network),
+        Reason(IFirewall.REASON_LOCKED, IFirewall.REASON_USER_LOCKED, R.string.reason_locked),
         Reason(IFirewall.REASON_ALL, 0, R.string.reason_all),
     )
 

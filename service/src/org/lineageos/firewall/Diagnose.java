@@ -38,8 +38,8 @@ final class Diagnose {
             {IFirewall.REASON_PORT, IFirewall.REASON_USER_PORT},
             {IFirewall.REASON_DNS, IFirewall.REASON_USER_DNS},
     };
-    private static final int[] SWITCH_REASONS = {
-            IFirewall.REASON_LAN, IFirewall.REASON_NETWORK, IFirewall.REASON_ALL};
+    private static final int[] SWITCH_REASONS = {IFirewall.REASON_LAN, IFirewall.REASON_NETWORK,
+            IFirewall.REASON_LOCKED, IFirewall.REASON_ALL};
 
     private Diagnose() {}
 
@@ -73,6 +73,9 @@ final class Diagnose {
         }
         for (int reason : SWITCH_REASONS) {
             if ((entry.reasons & reason) != 0) matches.add(match(reason, ownPackage, null, null));
+        }
+        if ((entry.reasons & IFirewall.REASON_USER_LOCKED) != 0) {
+            matches.add(match(IFirewall.REASON_USER_LOCKED, null, null, null));
         }
         return matches.toArray(new ActivityMatch[0]);
     }

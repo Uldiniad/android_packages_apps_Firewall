@@ -25,7 +25,9 @@ final class FirewallShellCommand extends BasicShellCommandHandler {
             "other", FirewallMaps.BLOCK_OTHER,
             "metered", FirewallMaps.BLOCK_METERED,
             "roaming", FirewallMaps.BLOCK_ROAMING,
-            "dns", FirewallMaps.BLOCK_DNS);
+            "dns", FirewallMaps.BLOCK_DNS,
+            "locked", FirewallMaps.BLOCK_LOCKED,
+            "allow-locked", FirewallMaps.ALLOW_LOCKED);
 
     private final FirewallService mService;
 
@@ -101,7 +103,7 @@ final class FirewallShellCommand extends BasicShellCommandHandler {
         pw.println("Firewall commands:");
         pw.println("  set-app PACKAGE RULES [--user USER]");
         pw.println("      RULES: none, or a comma list of all,wifi,mobile,vpn,other,metered,");
-        pw.println("      roaming,dns");
+        pw.println("      roaming,dns,locked,allow-locked");
         pw.println("  get-app PACKAGE [--user USER]");
         for (Feature feature : mService.features()) feature.onShellHelp(pw);
     }

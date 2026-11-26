@@ -125,10 +125,11 @@ int hotspot(struct __sk_buff* skb) {
     // reasons reported for what they decide; the rules for all apps come after both.
     __u32 scope = device ? device : row;
     __u32 scope_rules = device ? device_rules : rules;
-    int verdict = device ? own_verdict(device, device_rules, false, parsed, &path, &info, &counter)
+    int verdict = device ? own_verdict(device, device_rules, uflags, false, parsed, &path, &info,
+                                       &counter)
                          : -1;
     if (verdict < 0) {
-        verdict = own_verdict(row, rules, false, parsed, &path, &info, &counter);
+        verdict = own_verdict(row, rules, uflags, false, parsed, &path, &info, &counter);
         if (verdict >= 0) {
             scope = row;
             scope_rules = rules;

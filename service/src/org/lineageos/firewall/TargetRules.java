@@ -260,11 +260,25 @@ final class TargetRules extends Feature {
                 entriesLocked(scope | FirewallMaps.INCOMING_SCOPE, side(rules, true));
         writeScopeLocked(scope, entries);
         writeScopeLocked(scope | FirewallMaps.INCOMING_SCOPE, incoming);
-        int flags = entries.flags() | (incoming.flags() & FirewallMaps.SCOPE_INCOMING);
+        writeUserFlagsLocked(userId);
+    }
+
+    /**
+     * Writes the user's flags alone, as the maps hold its rules: the kinds of rules it has, then
+     * each feature's flags, which can change on their own.
+     */
+    void writeUserFlagsLocked(int userId) {
+        int scope = FirewallMaps.USER_SCOPE | userId;
+        int incoming = mScopeEntries.getOrDefault(scope | FirewallMaps.INCOMING_SCOPE,
+                ScopeEntries.EMPTY).flags();
+        int flags = mScopeEntries.getOrDefault(scope, ScopeEntries.EMPTY).flags()
+                | (incoming & FirewallMaps.SCOPE_INCOMING);
         BlockLists lists = mService.feature(BlockLists.class);
         if (lists != null) flags |= lists.userFlagsLocked(userId);
         ActivityLog log = mService.feature(ActivityLog.class);
         if (log != null) flags |= log.userFlagsLocked(userId);
+        LockedBlocking locked = mService.feature(LockedBlocking.class);
+        if (locked != null) flags |= locked.userFlagsLocked(userId);
         mService.maps().setUserFlags(userId, flags);
     }
 

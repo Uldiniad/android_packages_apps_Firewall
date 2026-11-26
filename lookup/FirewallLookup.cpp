@@ -165,22 +165,40 @@ Decision ownDecision(const LookupMaps& maps, const Scope& scope, uint64_t net,
     return Decision::kNone;
 }
 
-// What the user's domain rules and the lists say of the name, after the uid's own rules.
+uint32_t userFlagsOf(const LookupMaps& maps, uid_t uid) {
+    auto flags = maps.userFlags.readValue(uid / AID_USER_OFFSET);
+    return flags.ok() ? *flags : 0;
+}
+
+// Whether the rules for all of the user's apps block the app as its user is locked. Devices on
+// the phone's hotspot follow the rules for all apps, but not the phone's lock.
+bool lockedUser(uid_t uid, const std::vector<Scope>& scopes, uint32_t userFlags) {
+    if (!isAppUid(uid) || !(userFlags & FW_USER_BLOCK_LOCKED) || !(userFlags & FW_USER_LOCKED)) {
+        return false;
+    }
+    for (const Scope& scope : scopes) {
+        if (scope.rules & FW_RULE_ALLOW_LOCKED) return false;
+    }
+    return true;
+}
+
+// What the user's domain rules, their block while locked and the lists say of the name, after the
+// uid's own rules.
 Decision userDecision(const LookupMaps& maps, uid_t uid, const std::vector<Scope>& scopes,
                       uint64_t net, const std::vector<uint64_t>& suffixes) {
     if (scopes.empty() && !followsUserRules(uid)) return Decision::kNone;
     uint32_t user = uid / AID_USER_OFFSET;
-    auto flags = maps.userFlags.readValue(user);
-    uint32_t userFlags = flags.ok() ? *flags : 0;
+    uint32_t userFlags = userFlagsOf(maps, uid);
+    bool blocked = false;
     if (userFlags & FW_SCOPE_DOMAINS) {
         uint32_t scope = FW_USER_SCOPE | user;
         uint64_t match = domainMatch(maps, scope, suffixes);
         LimitsOn on = limitsOn(maps, scope, userFlags, net);
         if (fw_domain_bits_on(match, on.allows) & FW_DOMAIN_ALLOW) return Decision::kUserAllows;
-        if ((fw_domain_bits_on(match, on.blocks) & FW_DOMAIN_BLOCK) || dohServer(maps, suffixes)) {
-            return Decision::kUserBlocks;
-        }
+        blocked = (fw_domain_bits_on(match, on.blocks) & FW_DOMAIN_BLOCK) ||
+                  dohServer(maps, suffixes);
     }
+    if (blocked || lockedUser(uid, scopes, userFlags)) return Decision::kUserBlocks;
     if (listsBlock(scopes, user, userFlags, suffixes)) return Decision::kListBlocks;
     return Decision::kNone;
 }
@@ -261,11 +279,13 @@ bool allowsLookup(uid_t uid, unsigned netId, const char* name) {
     if (name != nullptr) suffixes = fw_domain_suffix_hashes(name);
     uint64_t net = networkOf(maps, netId);
     std::vector<Scope> scopes = ownScopes(maps, uid);
+    bool locked = userFlagsOf(maps, uid) & FW_USER_LOCKED;
     // Each scope's allow rules come before its switches, and both before the next scope's.
     for (const Scope& scope : scopes) {
         Decision own = ownDecision(maps, scope, net, suffixes);
         if (own == Decision::kAppAllows) return true;
         if ((scope.rules & (FW_RULE_BLOCK_ALL | FW_RULE_BLOCK_DNS)) ||
+            (locked && (scope.rules & FW_RULE_BLOCK_LOCKED)) ||
             networkBlocked(maps, scope.uid, scope.rules, net) || own == Decision::kAppBlocks) {
             return false;
         }

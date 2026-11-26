@@ -54,6 +54,14 @@ final class FirewallMaps {
     static final int SCOPE_INCOMING = SCOPE_INCOMING_BLOCKS | SCOPE_INCOMING_ALLOWS;
     /** In user flags: the user's activity log is on, so what is let through is reported too. */
     static final int USER_LOG = 1 << 23;
+    /**
+     * In user flags: the user is locked, and all of its apps are blocked then, but those with
+     * ALLOW_LOCKED; the apps' bits of the same positions are BLOCK_LOCKED and ALLOW_LOCKED.
+     */
+    static final int USER_LOCKED = 1 << 24;
+    static final int USER_BLOCK_LOCKED = 1 << 25;
+    static final int BLOCK_LOCKED = IFirewall.BLOCK_LOCKED;
+    static final int ALLOW_LOCKED = IFirewall.ALLOW_LOCKED;
     /** A scope with this set holds the incoming rules of the scope without it. */
     static final int INCOMING_SCOPE = 1 << 30;
     static final int LIST_SLOTS = 64;

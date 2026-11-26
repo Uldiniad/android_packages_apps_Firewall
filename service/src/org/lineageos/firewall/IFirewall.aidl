@@ -26,6 +26,12 @@ interface IFirewall {
     /** Metered networks and roaming, whatever the transport; also while the app is in use. */
     const int BLOCK_METERED = 65536;
     const int BLOCK_ROAMING = 131072;
+    /**
+     * While the app's user is locked: the screen is off, the lock screen shows or another user is
+     * in front. ALLOW_LOCKED lets the app through then though all of its user's apps are blocked.
+     */
+    const int BLOCK_LOCKED = 16777216;
+    const int ALLOW_LOCKED = 33554432;
 
     /** An app's choice for a specific network: to follow the switch for its kind, or its own. */
     const int NETWORK_DEFAULT = 0;
@@ -71,8 +77,8 @@ interface IFirewall {
     const int ACTIVITY_LOOKUP = 4;
     /**
      * Why something was refused, as bits: the app blocked everywhere or on the network, its
-     * address, port, own DNS, local network through a VPN, list or domain rules, or its incoming
-     * rules; those for all apps apart.
+     * address, port, own DNS, local network through a VPN, list or domain rules, its incoming
+     * rules, or while its user is locked; those for all apps apart.
      */
     const int REASON_ALL = 1;
     const int REASON_NETWORK = 2;
@@ -89,6 +95,8 @@ interface IFirewall {
     const int REASON_USER_DOMAIN = 4096;
     const int REASON_INCOMING = 8192;
     const int REASON_USER_INCOMING = 16384;
+    const int REASON_LOCKED = 32768;
+    const int REASON_USER_LOCKED = 65536;
 
     void setAppRules(String packageName, int userId, int rules);
     /** Blocks the app, or allows it, until the time in milliseconds since the epoch; 0 ends it. */
@@ -183,4 +191,8 @@ interface IFirewall {
     void turnOffUntil(long untilMillis);
     /** When the firewall comes back on by itself, as a wall-clock time, or 0 when it won't. */
     long getOffUntil();
+
+    /** Blocks all of the user's apps while it's locked, but those with ALLOW_LOCKED; or stops. */
+    void setBlockedWhileLocked(int userId, boolean blocked);
+    boolean isBlockedWhileLocked(int userId);
 }

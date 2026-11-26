@@ -169,6 +169,8 @@ private fun Context.matchText(match: ActivityMatch, entry: ActivityStore.Entry):
         IFirewall.REASON_DNS,
         IFirewall.REASON_USER_DNS -> getString(R.string.why_dns)
         IFirewall.REASON_LAN -> getString(R.string.why_lan)
+        IFirewall.REASON_LOCKED,
+        IFirewall.REASON_USER_LOCKED -> getString(R.string.why_locked)
         IFirewall.REASON_ALL -> getString(R.string.why_all)
         IFirewall.REASON_NETWORK ->
             Network.entries

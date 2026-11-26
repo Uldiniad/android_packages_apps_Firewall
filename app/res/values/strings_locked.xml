@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources>
+    <!-- An app's switch: blocks the app while the screen is off or the lock screen shows, or another user is using the phone. -->
+    <string name="block_while_locked">Block while locked</string>
+    <string name="block_while_locked_summary">While the screen is off or locked</string>
+    <!-- An app's switch once all apps are blocked while locked: lets this app through then. -->
+    <string name="allow_while_locked">Allow while locked</string>
+    <string name="allow_while_locked_summary">Other apps are blocked while the screen is off or locked</string>
+    <!-- On the home page: blocks every app while locked, but those allowed on their own pages. -->
+    <string name="block_all_while_locked">Block all apps while locked</string>
+    <string name="block_all_while_locked_summary">While the screen is off or locked. Allow calling and messaging apps on their pages, so they can still ring and notify.</string>
+    <!-- The rule that refused an activity log entry, as "blocked everywhere" is another. -->
+    <string name="reason_locked">blocked while locked</string>
+    <!-- On a refused activity log entry's page: the switch that refused it. -->
+    <string name="why_locked">Blocked while locked</string>
+</resources>

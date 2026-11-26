@@ -144,6 +144,7 @@ class FirewallAppTest {
             firewall.removeList(userId, list.packageName, list.id)
         }
         firewall.setNewInstallsBlocked(userId, newAppsBlocked)
+        firewall.setBlockedWhileLocked(userId, false)
         firewall.setActivityLog(userId, false)
         firewall.clearActivity(userId)
     }
@@ -627,6 +628,25 @@ class FirewallAppTest {
                 }
             }
         }
+
+    @Test
+    fun anAppIsBlockedWhileLockedOrAllowedThenOnceAllAppsAre() {
+        onPage("AppRules/$testPackage/$userId") {
+            scrollTo(text("block_while_locked")).click()
+            waitUntil { firewall.getAppRules(testPackage, userId) and IFirewall.BLOCK_LOCKED != 0 }
+        }
+        onPage("AppList") {
+            scrollTo(text("block_all_while_locked")).click()
+            waitUntil { firewall.isBlockedWhileLocked(userId) }
+        }
+        onPage("AppRules/$testPackage/$userId") {
+            scrollTo(text("allow_while_locked")).click()
+            waitUntil {
+                val rules = firewall.getAppRules(testPackage, userId)
+                rules and IFirewall.ALLOW_LOCKED != 0 && rules and IFirewall.BLOCK_LOCKED == 0
+            }
+        }
+    }
 
     @Test
     fun schedulePageTurnsABedtimeScheduleOn() =

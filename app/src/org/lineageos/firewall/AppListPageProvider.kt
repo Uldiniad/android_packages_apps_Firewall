@@ -123,6 +123,7 @@ private fun UserSettings(userId: Int) {
         )
     }
     Category {
+        BlockAllWhileLockedSwitch(userId)
         NewAppsPreferences(userId)
         AllAppsRulesEntry(userId)
         GroupsEntry(userId)

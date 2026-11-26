@@ -110,7 +110,8 @@ public final class FirewallService extends SystemService {
                 new BlockLists(this, storeDir),
                 new Groups(this),
                 new ActivityLog(this),
-                new Hotspot(this));
+                new Hotspot(this),
+                new LockedBlocking(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
 
@@ -513,6 +514,11 @@ public final class FirewallService extends SystemService {
             if (feature.letsThroughLocked(uid, rules)) return true;
         }
         return false;
+    }
+
+    /** The uid's bits in the uid map, as last written, without NO_LOOPBACK. */
+    int uidRulesLocked(int uid) {
+        return mUidRules.getOrDefault(uid, 0);
     }
 
     private Set<Integer> blockedEverywhereLocked() {
@@ -1018,6 +1024,19 @@ public final class FirewallService extends SystemService {
         public boolean isActivityLogOn(int userId) {
             enforceUser(userId);
             return feature(ActivityLog.class).isActivityLogInternal(userId);
+        }
+
+        @Override
+        public void setBlockedWhileLocked(int userId, boolean blocked) {
+            enforceUser(userId);
+            runAsSystem(() -> feature(LockedBlocking.class)
+                    .setBlockedWhileLockedInternal(userId, blocked));
+        }
+
+        @Override
+        public boolean isBlockedWhileLocked(int userId) {
+            enforceUser(userId);
+            return feature(LockedBlocking.class).isBlockedWhileLockedInternal(userId);
         }
 
         @Override

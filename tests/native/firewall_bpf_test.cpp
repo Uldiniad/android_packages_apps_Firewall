@@ -1169,4 +1169,41 @@ TEST_F(FirewallBpfTest, WithItsUsersLogOnWhatAnAppIsLetDoIsCountedToo) {
     EXPECT_EQ(0u, refusalStats(datagram).count);
 }
 
+
+TEST_F(FirewallBpfTest, AppsBlockedWhileLockedAreBlockedWhileTheirUserIsLocked) {
+    setRules(FW_RULE_BLOCK_LOCKED);
+    setUserFlags(0);
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "198.51.100.1"));
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+    setUserFlags(FW_USER_LOCKED);
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "198.51.100.1"));
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+    fw_refusal_key refusal = clearedRefusal(FW_REFUSAL_OUT, AF_INET6, "ff02::1", kPort);
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+    EXPECT_EQ(FW_REFUSED_LOCKED, refusalStats(refusal).reasons);
+    // What comes in on connections already open stops too.
+    unique_fd udp = serving(SOCK_DGRAM, kServed);
+    arrive(IPPROTO_UDP, 5000, kServed);
+    EXPECT_FALSE(received(udp.get()));
+
+    // All of the user's apps, after the user's allow rules, but those let through.
+    setRules(0);
+    setUserFlags(FW_USER_LOCKED | FW_USER_BLOCK_LOCKED | FW_SCOPE_IP_ALLOWS);
+    putIp4("ip4_allow", kUserScope, "198.51.100.7", 32);
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "198.51.100.1"));
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "198.51.100.7"));
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+    refusal = clearedRefusal(FW_REFUSAL_OUT, AF_INET6, "ff02::1", kPort);
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+    EXPECT_EQ(FW_REFUSED_USER_LOCKED, refusalStats(refusal).reasons);
+    arrive(IPPROTO_UDP, 5000, kServed);
+    EXPECT_FALSE(received(udp.get()));
+    setRules(FW_RULE_ALLOW_LOCKED);
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "198.51.100.1"));
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+    EXPECT_EQ(0, sendMulticast(kPort));
+    arrive(IPPROTO_UDP, 5000, kServed);
+    EXPECT_TRUE(received(udp.get()));
+}
+
 }  // namespace

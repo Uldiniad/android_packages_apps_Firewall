@@ -26,8 +26,13 @@ static __always_inline __u32 refusal_reasons(__u32 uid, __u32 rules, __u8 direct
                                              const struct l4_info* info, bool parsed,
                                              const struct fw_path* path) {
     __u32 reasons = 0;
+    __u32 user = uid / AID_USER_OFFSET;
+    __u32 user_scope = FW_USER_SCOPE | user;
+    __u32 uflags = user_flags_of(user);
     if (cut_off(direction, rules, info, path)) {
         if (rules & FW_RULE_BLOCK_ALL) reasons |= FW_REFUSED_ALL;
+        if (locked_app(rules, uflags)) reasons |= FW_REFUSED_LOCKED;
+        if (locked_user(uid, rules, uflags)) reasons |= FW_REFUSED_USER_LOCKED;
         // Apps kept off loopback are blocked on it as on a network.
         if ((direction != FW_REFUSAL_CONNECT && path->ifindex == 1) ||
             network_blocked(uid, rules, path)) {
@@ -35,9 +40,6 @@ static __always_inline __u32 refusal_reasons(__u32 uid, __u32 rules, __u8 direct
         }
     }
     if (!parsed) return reasons;
-    __u32 user = uid / AID_USER_OFFSET;
-    __u32 user_scope = FW_USER_SCOPE | user;
-    __u32 uflags = user_flags_of(user);
     if (direction == FW_REFUSAL_INCOMING) {
         return reasons | incoming_reasons(uid, rules, uflags, info, path);
     }

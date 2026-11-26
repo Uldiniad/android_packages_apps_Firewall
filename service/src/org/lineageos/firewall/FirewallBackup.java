@@ -29,7 +29,7 @@ final class FirewallBackup {
     private static final int VERSION = 1;
     /** The rules a user sets; the service works out the other bits. */
     static final int USER_RULES = FirewallMaps.BLOCK_ALL | FirewallMaps.NETWORKS
-            | FirewallMaps.BLOCK_DNS;
+            | FirewallMaps.BLOCK_DNS | FirewallMaps.BLOCK_LOCKED | FirewallMaps.ALLOW_LOCKED;
 
     /** Each feature's part of an app or a user, by feature. */
     static final class Parts {

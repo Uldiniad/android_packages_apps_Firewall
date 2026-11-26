@@ -82,6 +82,16 @@ static __always_inline bool locked_user(__u32 uid, __u32 rules, __u32 uflags) {
            !(rules & FW_RULE_ALLOW_LOCKED);
 }
 
+// Whether the user's lockdown keeps the uid off the network, before any rule: an app, or the main
+// user's hotspot devices, all of them or one with rules of its own. Android's own uids aren't
+// apps, so they keep working, as the resolver does.
+static __always_inline bool locked_down(__u32 uid, __u32 rules, __u32 uflags) {
+    bool hotspot = uid == AID_DNS_TETHER || (uid >= FW_HOTSPOT_DEVICE_UID_START &&
+                                             uid < FW_HOTSPOT_DEVICE_UID_START + FW_HOTSPOT_DEVICES);
+    return (is_app_uid(uid) || hotspot) && (uflags & FW_USER_LOCKDOWN) &&
+           !(rules & FW_RULE_ALLOW_LOCKDOWN);
+}
+
 static __always_inline __u64 iface_network(__u32 ifindex) {
     __u64* net = bpf_map_lookup_elem(&iface_transport, &ifindex);
     return net ? *net : 0;
@@ -303,6 +313,10 @@ static __always_inline bool egress_drop(struct __sk_buff* skb, __u32 uid, __u32 
                                         __u32 uflags, const struct fw_path* path,
                                         struct l4_info* info, bool* parsed, __u32* counter) {
     *parsed = parse_l4(skb, info, true);
+    if (locked_down(uid, rules, uflags)) {
+        *counter = FW_C_EGRESS_DROP_ALL;
+        return true;
+    }
     int own = own_verdict(uid, rules, uflags, true, *parsed, path, info, counter);
     if (own >= 0) return own;
     if (!*parsed) return false;
@@ -376,22 +390,28 @@ int ingress(struct __sk_buff* skb) {
     if (!subject) return 1;
     __u32 uflags = user_flags_of(uid / AID_USER_OFFSET);
     struct fw_path path = {.ifindex = ifindex};
-    bool blocked = (rules & FW_RULE_BLOCK_ALL) || locked_app(rules, uflags) ||
+    // Lockdown lets nothing in, whatever the rules.
+    bool down = locked_down(uid, rules, uflags);
+    bool blocked = down || (rules & FW_RULE_BLOCK_ALL) || locked_app(rules, uflags) ||
                    network_blocked(uid, rules, &path);
     bool locked = !blocked && locked_user(uid, rules, uflags);
     if (!blocked && !locked && !((rules | uflags) & (FW_SCOPE_INCOMING | FW_USER_LOG))) return 1;
     struct l4_info info = {};
     bool parsed = parse_l4(skb, &info, false);
-    int incoming = parsed ? incoming_verdict(skb, uid, rules, uflags, blocked, &info, &path) : -1;
+    int incoming = parsed && !down
+                           ? incoming_verdict(skb, uid, rules, uflags, blocked, &info, &path)
+                           : -1;
     __u8 direction = FW_REFUSAL_INCOMING;
     bool allowed = incoming == 1;
     if (incoming < 0) {
         // A blocked app still hears back from what its allow rules let it reach, and one the
         // rules for all apps block while locked from what theirs do.
-        allowed = (!blocked && !locked) ||
-                  ((rules & FW_SCOPE_ALLOWS) && parsed && scope_allows(uid, rules, &info, &path)) ||
-                  (locked && (uflags & FW_SCOPE_ALLOWS) && parsed &&
-                   scope_allows(FW_USER_SCOPE | (uid / AID_USER_OFFSET), uflags, &info, &path));
+        allowed = !down &&
+                  ((!blocked && !locked) ||
+                   ((rules & FW_SCOPE_ALLOWS) && parsed &&
+                    scope_allows(uid, rules, &info, &path)) ||
+                   (locked && (uflags & FW_SCOPE_ALLOWS) && parsed &&
+                    scope_allows(FW_USER_SCOPE | (uid / AID_USER_OFFSET), uflags, &info, &path)));
         if (allowed && !(parsed && tcp_opens(skb, &info))) return 1;
         if (!allowed) direction = FW_REFUSAL_IN;
     }
@@ -435,15 +455,17 @@ static __always_inline int connect_verdict(struct bpf_sock_addr* ctx, bool v6) {
     // address families work. What it sends still goes through egress.
     if (info.protocol == IPPROTO_UDP && !info.port) return 1;
     struct fw_path path = {.mark = ctx->sk->mark, .owner_uid = owner_uid, .connect = true};
-    if ((rules & FW_SCOPE_ALLOWS) && scope_allows(uid, rules, &info, &path)) return 1;
     // Loopback isn't any network's: only the rules for addresses and ports apply to it, unless
     // the app is kept off it.
     bool off = cut_off(FW_REFUSAL_CONNECT, rules, &info, &path);
     __u32 user = uid / AID_USER_OFFSET;
     __u32 uflags = user_flags_of(user);
-    bool blocked = (off && ((rules & FW_RULE_BLOCK_ALL) || locked_app(rules, uflags) ||
-                            network_blocked(uid, rules, &path))) ||
-                   ((rules & FW_SCOPE_BLOCKS) && scope_blocks(uid, rules, &info, &path, NULL));
+    bool blocked = off && locked_down(uid, rules, uflags);
+    if (!blocked && (rules & FW_SCOPE_ALLOWS) && scope_allows(uid, rules, &info, &path)) return 1;
+    blocked = blocked ||
+              (off && ((rules & FW_RULE_BLOCK_ALL) || locked_app(rules, uflags) ||
+                       network_blocked(uid, rules, &path))) ||
+              ((rules & FW_SCOPE_BLOCKS) && scope_blocks(uid, rules, &info, &path, NULL));
     if (!blocked) {
         __u32 user_scope = FW_USER_SCOPE | user;
         if ((uflags & FW_SCOPE_ALLOWS) && scope_allows(user_scope, uflags, &info, &path)) {

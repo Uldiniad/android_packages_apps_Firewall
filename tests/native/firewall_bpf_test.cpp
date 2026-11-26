@@ -1206,4 +1206,52 @@ TEST_F(FirewallBpfTest, AppsBlockedWhileLockedAreBlockedWhileTheirUserIsLocked) 
     EXPECT_TRUE(received(udp.get()));
 }
 
+
+TEST_F(FirewallBpfTest, LockdownBlocksAllButTheAppsLetThroughBeforeAnyRule) {
+    setRules(FW_SCOPE_IP_ALLOWS);
+    putIp4("ip4_allow", kTestUid, "198.51.100.7", 32);
+    setUserFlags(FW_USER_LOCKDOWN);
+    EXPECT_EQ(EPERM, connectOnTestNet(AF_INET, "198.51.100.7"));
+    EXPECT_FALSE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+    fw_refusal_key refusal = clearedRefusal(FW_REFUSAL_OUT, AF_INET6, "ff02::1", kPort);
+    EXPECT_EQ(EPERM, sendMulticast(kPort));
+    EXPECT_EQ(FW_REFUSED_LOCKDOWN, refusalStats(refusal).reasons);
+    unique_fd udp = serving(SOCK_DGRAM, kServed);
+    arrive(IPPROTO_UDP, 5000, kServed);
+    EXPECT_FALSE(received(udp.get()));
+
+    setRules(FW_RULE_ALLOW_LOCKDOWN);
+    EXPECT_NE(EPERM, connectOnTestNet(AF_INET, "198.51.100.1"));
+    EXPECT_TRUE(allowsLookup(kTestUid, kTestNetId, "example.test"));
+    EXPECT_EQ(0, sendMulticast(kPort));
+    arrive(IPPROTO_UDP, 5000, kServed);
+    EXPECT_TRUE(received(udp.get()));
+}
+
+TEST_F(FirewallBpfTest, TheMainUsersLockdownTakesHotspotDevicesOffButThoseLetThrough) {
+    uint64_t mac = 0;
+    uint8_t device[] = {0x02, 0, 0, 0, 0, 0x99};
+    memcpy(&mac, device, sizeof(device));
+    put("hotspot_devices", mac, kTestDevice);
+    put("uid_rules", kTestDevice, uint32_t{0});
+    put("uid_rules", static_cast<uint32_t>(AID_DNS_TETHER), uint32_t{0});
+    // The main user's own flags stay, with lockdown added, until the test ends.
+    uint32_t mainUser = 0;
+    uint32_t flags = 0;
+    findMapEntry(mMaps["user_flags"], &mainUser, &flags);
+    put("user_flags", mainUser, flags | FW_USER_LOCKDOWN);
+    EXPECT_EQ(TC_ACT_SHOT, hotspotVerdict(hotspotFrame(0x99, "198.51.100.4")));
+    EXPECT_FALSE(allowsLookup(kTestDevice, kTestNetId, "example.test"));
+    EXPECT_FALSE(allowsLookup(AID_DNS_TETHER, kTestNetId, "example.test"));
+
+    // A device let through on its own, then all of them.
+    put("uid_rules", kTestDevice, uint32_t{FW_RULE_ALLOW_LOCKDOWN});
+    EXPECT_EQ(TC_ACT_UNSPEC, hotspotVerdict(hotspotFrame(0x99, "198.51.100.4")));
+    EXPECT_TRUE(allowsLookup(kTestDevice, kTestNetId, "example.test"));
+    EXPECT_EQ(TC_ACT_SHOT, hotspotVerdict(hotspotFrame(0x98, "198.51.100.4")));
+    put("uid_rules", static_cast<uint32_t>(AID_DNS_TETHER), uint32_t{FW_RULE_ALLOW_LOCKDOWN});
+    EXPECT_EQ(TC_ACT_UNSPEC, hotspotVerdict(hotspotFrame(0x98, "198.51.100.4")));
+    EXPECT_TRUE(allowsLookup(AID_DNS_TETHER, kTestNetId, "example.test"));
+}
+
 }  // namespace

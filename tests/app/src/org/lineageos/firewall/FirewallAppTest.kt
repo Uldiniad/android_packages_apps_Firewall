@@ -145,6 +145,7 @@ class FirewallAppTest {
         }
         firewall.setNewInstallsBlocked(userId, newAppsBlocked)
         firewall.setBlockedWhileLocked(userId, false)
+        firewall.setLockdown(userId, false)
         firewall.setActivityLog(userId, false)
         firewall.clearActivity(userId)
     }
@@ -645,6 +646,31 @@ class FirewallAppTest {
                 val rules = firewall.getAppRules(testPackage, userId)
                 rules and IFirewall.ALLOW_LOCKED != 0 && rules and IFirewall.BLOCK_LOCKED == 0
             }
+        }
+    }
+
+    @Test
+    fun lockdownTurnsOnFromItsTileAndOffOnTheHomePageAndAnAppIsAllowedInIt() {
+        val tile = "$APP/.LockdownTileService"
+        runShellCommand("cmd statusbar add-tile $tile")
+        try {
+            // The tile turns lockdown on whatever it shows until the service answers.
+            waitUntil {
+                if (!firewall.isLockdown(userId)) runShellCommand("cmd statusbar click-tile $tile")
+                firewall.isLockdown(userId)
+            }
+            onPage("AppList") {
+                find(text("lockdown_title")).click()
+                waitUntil { !firewall.isLockdown(userId) }
+            }
+            onPage("AppRules/$testPackage/$userId") {
+                scrollTo(text("allow_in_lockdown")).click()
+                waitUntil {
+                    firewall.getAppRules(testPackage, userId) and IFirewall.ALLOW_LOCKDOWN != 0
+                }
+            }
+        } finally {
+            runShellCommand("cmd statusbar remove-tile $tile")
         }
     }
 

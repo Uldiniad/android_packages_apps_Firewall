@@ -182,6 +182,19 @@ bool lockedUser(uid_t uid, const std::vector<Scope>& scopes, uint32_t userFlags)
     return true;
 }
 
+// Whether the user's lockdown refuses the uid's lookups, before any rule, as the BPF programs refuse
+// its traffic: an app's, or the main user's hotspot devices', but those let through at their own
+// level or for all the devices.
+bool lockedDown(uid_t uid, const std::vector<Scope>& scopes, uint32_t userFlags) {
+    if (!(userFlags & FW_USER_LOCKDOWN) || (!followsUserRules(uid) && !isHotspotDevice(uid))) {
+        return false;
+    }
+    for (const Scope& scope : scopes) {
+        if (scope.rules & FW_RULE_ALLOW_LOCKDOWN) return false;
+    }
+    return true;
+}
+
 // What the user's domain rules, their block while locked and the lists say of the name, after the
 // uid's own rules.
 Decision userDecision(const LookupMaps& maps, uid_t uid, const std::vector<Scope>& scopes,
@@ -279,7 +292,9 @@ bool allowsLookup(uid_t uid, unsigned netId, const char* name) {
     if (name != nullptr) suffixes = fw_domain_suffix_hashes(name);
     uint64_t net = networkOf(maps, netId);
     std::vector<Scope> scopes = ownScopes(maps, uid);
-    bool locked = userFlagsOf(maps, uid) & FW_USER_LOCKED;
+    uint32_t userFlags = userFlagsOf(maps, uid);
+    if (lockedDown(uid, scopes, userFlags)) return false;
+    bool locked = userFlags & FW_USER_LOCKED;
     // Each scope's allow rules come before its switches, and both before the next scope's.
     for (const Scope& scope : scopes) {
         Decision own = ownDecision(maps, scope, net, suffixes);

@@ -113,6 +113,7 @@ fun RulesControls(packageName: String, userId: Int, appRules: Map<String, AppRul
     )
     ScheduleEntries(packageName, userId, rule)
     if (!isHotspotRules(packageName)) LockedSwitch(userId, rules, allowed, change)
+    AllowInLockdownSwitch(rules, change)
     Category(title = stringResource(R.string.networks_title)) {
         for (network in Network.entries) {
             if (network == Network.VPN && !hasVpnChoices(packageName)) continue

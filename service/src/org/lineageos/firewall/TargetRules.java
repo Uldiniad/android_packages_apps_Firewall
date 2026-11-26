@@ -279,6 +279,8 @@ final class TargetRules extends Feature {
         if (log != null) flags |= log.userFlagsLocked(userId);
         LockedBlocking locked = mService.feature(LockedBlocking.class);
         if (locked != null) flags |= locked.userFlagsLocked(userId);
+        Lockdown lockdown = mService.feature(Lockdown.class);
+        if (lockdown != null) flags |= lockdown.userFlagsLocked(userId);
         mService.maps().setUserFlags(userId, flags);
     }
 

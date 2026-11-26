@@ -304,6 +304,7 @@ private class Reason(val own: Int, val forAllApps: Int, @StringRes val text: Int
 /** The kinds of rules, the most specific first. */
 private val REASONS: List<Reason> =
     listOf(
+        Reason(IFirewall.REASON_LOCKDOWN, 0, R.string.reason_lockdown),
         Reason(IFirewall.REASON_INCOMING, IFirewall.REASON_USER_INCOMING, R.string.reason_incoming),
         Reason(IFirewall.REASON_DOMAIN, IFirewall.REASON_USER_DOMAIN, R.string.reason_domain),
         Reason(IFirewall.REASON_LIST, IFirewall.REASON_USER_LIST, R.string.reason_list),

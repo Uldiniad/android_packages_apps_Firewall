@@ -108,7 +108,7 @@ int hotspot(struct __sk_buff* skb) {
     __u32 uflags = user_flags_of(row / AID_USER_OFFSET);
     if (!device_rules && !rules &&
         !(uflags & (FW_SCOPE_ALLOWS | FW_SCOPE_BLOCKS | FW_SCOPE_DOMAINS | FW_SCOPE_LISTS |
-                    FW_USER_LOG))) {
+                    FW_USER_LOG | FW_USER_LOCKDOWN))) {
         return TC_ACT_UNSPEC;
     }
     __u32 key = 0;
@@ -125,9 +125,15 @@ int hotspot(struct __sk_buff* skb) {
     // reasons reported for what they decide; the rules for all apps come after both.
     __u32 scope = device ? device : row;
     __u32 scope_rules = device ? device_rules : rules;
-    int verdict = device ? own_verdict(device, device_rules, uflags, false, parsed, &path, &info,
-                                       &counter)
-                         : -1;
+    // The main user's lockdown comes first, but for devices let through: all of them by the rules
+    // for all the devices, or one by its own.
+    bool down = locked_down(row, rules, uflags) &&
+                (!device || locked_down(device, device_rules, uflags));
+    if (down) counter = FW_C_EGRESS_DROP_ALL;
+    int verdict = down     ? 1
+                  : device ? own_verdict(device, device_rules, uflags, false, parsed, &path, &info,
+                                         &counter)
+                           : -1;
     if (verdict < 0) {
         verdict = own_verdict(row, rules, uflags, false, parsed, &path, &info, &counter);
         if (verdict >= 0) {

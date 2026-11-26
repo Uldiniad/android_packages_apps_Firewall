@@ -77,6 +77,9 @@ final class Diagnose {
         if ((entry.reasons & IFirewall.REASON_USER_LOCKED) != 0) {
             matches.add(match(IFirewall.REASON_USER_LOCKED, null, null, null));
         }
+        if ((entry.reasons & IFirewall.REASON_LOCKDOWN) != 0) {
+            matches.add(0, match(IFirewall.REASON_LOCKDOWN, null, null, null));
+        }
         return matches.toArray(new ActivityMatch[0]);
     }
 

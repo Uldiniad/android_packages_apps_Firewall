@@ -30,6 +30,7 @@ static __always_inline __u32 refusal_reasons(__u32 uid, __u32 rules, __u8 direct
     __u32 user_scope = FW_USER_SCOPE | user;
     __u32 uflags = user_flags_of(user);
     if (cut_off(direction, rules, info, path)) {
+        if (locked_down(uid, rules, uflags)) reasons |= FW_REFUSED_LOCKDOWN;
         if (rules & FW_RULE_BLOCK_ALL) reasons |= FW_REFUSED_ALL;
         if (locked_app(rules, uflags)) reasons |= FW_REFUSED_LOCKED;
         if (locked_user(uid, rules, uflags)) reasons |= FW_REFUSED_USER_LOCKED;

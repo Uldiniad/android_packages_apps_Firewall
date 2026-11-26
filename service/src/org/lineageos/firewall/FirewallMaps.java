@@ -62,6 +62,9 @@ final class FirewallMaps {
     static final int USER_BLOCK_LOCKED = 1 << 25;
     static final int BLOCK_LOCKED = IFirewall.BLOCK_LOCKED;
     static final int ALLOW_LOCKED = IFirewall.ALLOW_LOCKED;
+    /** In user flags: the user is in lockdown; the apps' bit of the position is ALLOW_LOCKDOWN. */
+    static final int USER_LOCKDOWN = 1 << 26;
+    static final int ALLOW_LOCKDOWN = IFirewall.ALLOW_LOCKDOWN;
     /** A scope with this set holds the incoming rules of the scope without it. */
     static final int INCOMING_SCOPE = 1 << 30;
     static final int LIST_SLOTS = 64;

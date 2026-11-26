@@ -111,7 +111,8 @@ public final class FirewallService extends SystemService {
                 new Groups(this),
                 new ActivityLog(this),
                 new Hotspot(this),
-                new LockedBlocking(this));
+                new LockedBlocking(this),
+                new Lockdown(this));
         mStore = new FirewallStore(storeDir, mFeatures);
     }
 
@@ -1037,6 +1038,18 @@ public final class FirewallService extends SystemService {
         public boolean isBlockedWhileLocked(int userId) {
             enforceUser(userId);
             return feature(LockedBlocking.class).isBlockedWhileLockedInternal(userId);
+        }
+
+        @Override
+        public void setLockdown(int userId, boolean on) {
+            enforceUser(userId);
+            runAsSystem(() -> feature(Lockdown.class).setLockdownInternal(userId, on));
+        }
+
+        @Override
+        public boolean isLockdown(int userId) {
+            enforceUser(userId);
+            return feature(Lockdown.class).isLockdownInternal(userId);
         }
 
         @Override

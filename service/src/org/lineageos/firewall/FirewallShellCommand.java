@@ -17,17 +17,18 @@ import java.util.Map;
 
 /** Implements {@code cmd firewall}. */
 final class FirewallShellCommand extends BasicShellCommandHandler {
-    private static final Map<String, Integer> RULES = Map.of(
-            "all", FirewallMaps.BLOCK_ALL,
-            "wifi", FirewallMaps.BLOCK_WIFI,
-            "mobile", FirewallMaps.BLOCK_CELLULAR,
-            "vpn", FirewallMaps.BLOCK_VPN,
-            "other", FirewallMaps.BLOCK_OTHER,
-            "metered", FirewallMaps.BLOCK_METERED,
-            "roaming", FirewallMaps.BLOCK_ROAMING,
-            "dns", FirewallMaps.BLOCK_DNS,
-            "locked", FirewallMaps.BLOCK_LOCKED,
-            "allow-locked", FirewallMaps.ALLOW_LOCKED);
+    private static final Map<String, Integer> RULES = Map.ofEntries(
+            Map.entry("all", FirewallMaps.BLOCK_ALL),
+            Map.entry("wifi", FirewallMaps.BLOCK_WIFI),
+            Map.entry("mobile", FirewallMaps.BLOCK_CELLULAR),
+            Map.entry("vpn", FirewallMaps.BLOCK_VPN),
+            Map.entry("other", FirewallMaps.BLOCK_OTHER),
+            Map.entry("metered", FirewallMaps.BLOCK_METERED),
+            Map.entry("roaming", FirewallMaps.BLOCK_ROAMING),
+            Map.entry("dns", FirewallMaps.BLOCK_DNS),
+            Map.entry("locked", FirewallMaps.BLOCK_LOCKED),
+            Map.entry("allow-locked", FirewallMaps.ALLOW_LOCKED),
+            Map.entry("allow-lockdown", FirewallMaps.ALLOW_LOCKDOWN));
 
     private final FirewallService mService;
 
@@ -103,7 +104,7 @@ final class FirewallShellCommand extends BasicShellCommandHandler {
         pw.println("Firewall commands:");
         pw.println("  set-app PACKAGE RULES [--user USER]");
         pw.println("      RULES: none, or a comma list of all,wifi,mobile,vpn,other,metered,");
-        pw.println("      roaming,dns,locked,allow-locked");
+        pw.println("      roaming,dns,locked,allow-locked,allow-lockdown");
         pw.println("  get-app PACKAGE [--user USER]");
         for (Feature feature : mService.features()) feature.onShellHelp(pw);
     }

@@ -108,8 +108,10 @@ private fun Why(
             Preference(
                 object : PreferenceModel {
                     override val title = context.matchText(match, entry)
+                    // Lockdown is the user's, before any level's rules.
                     override val summary = {
-                        context.levelText(match.packageName, appLabel, device, groups)
+                        if (match.reason == IFirewall.REASON_LOCKDOWN) ""
+                        else context.levelText(match.packageName, appLabel, device, groups)
                     }
                 }
             )
@@ -171,6 +173,7 @@ private fun Context.matchText(match: ActivityMatch, entry: ActivityStore.Entry):
         IFirewall.REASON_LAN -> getString(R.string.why_lan)
         IFirewall.REASON_LOCKED,
         IFirewall.REASON_USER_LOCKED -> getString(R.string.why_locked)
+        IFirewall.REASON_LOCKDOWN -> getString(R.string.why_lockdown)
         IFirewall.REASON_ALL -> getString(R.string.why_all)
         IFirewall.REASON_NETWORK ->
             Network.entries

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources>
+    <!-- A switch, and a quick settings tile, that blocks all apps at once but those allowed in lockdown. -->
+    <string name="lockdown_title">Lockdown</string>
+    <string name="lockdown_summary">Blocks all apps but those you allow in lockdown</string>
+    <!-- The main user's lockdown also blocks the devices on the phone's hotspot. -->
+    <string name="lockdown_summary_hotspot">Blocks all apps and hotspot devices but those you allow in lockdown</string>
+    <!-- An app's switch: lets the app use the network while lockdown blocks the others. -->
+    <string name="allow_in_lockdown">Allow in lockdown</string>
+    <string name="allow_in_lockdown_summary">Lockdown blocks everything else</string>
+    <!-- The rule that refused an activity log entry, as "blocked everywhere" is another. -->
+    <string name="reason_lockdown">lockdown</string>
+    <!-- On a refused activity log entry's page: what refused it. -->
+    <string name="why_lockdown">Lockdown is on</string>
+</resources>

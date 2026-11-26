@@ -32,6 +32,8 @@ interface IFirewall {
      */
     const int BLOCK_LOCKED = 16777216;
     const int ALLOW_LOCKED = 33554432;
+    /** Lets the app through while its user is in lockdown, which blocks all of its other apps. */
+    const int ALLOW_LOCKDOWN = 67108864;
 
     /** An app's choice for a specific network: to follow the switch for its kind, or its own. */
     const int NETWORK_DEFAULT = 0;
@@ -78,7 +80,7 @@ interface IFirewall {
     /**
      * Why something was refused, as bits: the app blocked everywhere or on the network, its
      * address, port, own DNS, local network through a VPN, list or domain rules, its incoming
-     * rules, or while its user is locked; those for all apps apart.
+     * rules, or while its user is locked; those for all apps apart; or its user's lockdown.
      */
     const int REASON_ALL = 1;
     const int REASON_NETWORK = 2;
@@ -97,6 +99,7 @@ interface IFirewall {
     const int REASON_USER_INCOMING = 16384;
     const int REASON_LOCKED = 32768;
     const int REASON_USER_LOCKED = 65536;
+    const int REASON_LOCKDOWN = 131072;
 
     void setAppRules(String packageName, int userId, int rules);
     /** Blocks the app, or allows it, until the time in milliseconds since the epoch; 0 ends it. */
@@ -195,4 +198,11 @@ interface IFirewall {
     /** Blocks all of the user's apps while it's locked, but those with ALLOW_LOCKED; or stops. */
     void setBlockedWhileLocked(int userId, boolean blocked);
     boolean isBlockedWhileLocked(int userId);
+
+    /**
+     * Puts the user in lockdown, which blocks all of its apps but those with ALLOW_LOCKDOWN, and
+     * for the main user the hotspot's devices too; or ends it.
+     */
+    void setLockdown(int userId, boolean on);
+    boolean isLockdown(int userId);
 }

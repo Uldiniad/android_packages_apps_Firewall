@@ -93,6 +93,10 @@
 // Set for apps blocked while their user is locked, and for those let through then.
 #define FW_RULE_BLOCK_LOCKED (1u << 24)
 #define FW_RULE_ALLOW_LOCKED (1u << 25)
+// In user_flags: the user is in lockdown, which keeps all of its apps off the network, but those
+// with FW_RULE_ALLOW_LOCKDOWN; the main user's keeps the hotspot's devices off it too.
+#define FW_USER_LOCKDOWN (1u << 26)
+#define FW_RULE_ALLOW_LOCKDOWN (1u << 26)
 #define FW_INCOMING_SCOPE (1u << 30)
 // A list's domains are in a file netd maps: FW_LISTS_DIR "<slot>-<generation>.names", which holds
 // FW_LIST_NAMES_MAGIC, a count, and the sorted keys of fw_domain_hash with the subdomain bit.
@@ -162,6 +166,7 @@ enum fw_counter {
 #define FW_REFUSED_USER_INCOMING (1u << 14)
 #define FW_REFUSED_LOCKED (1u << 15)
 #define FW_REFUSED_USER_LOCKED (1u << 16)
+#define FW_REFUSED_LOCKDOWN (1u << 17)
 
 enum fw_refusal_direction {
     FW_REFUSAL_CONNECT,

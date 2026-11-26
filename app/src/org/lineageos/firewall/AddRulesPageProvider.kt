@@ -86,21 +86,29 @@ object AddAppRulesPageProvider : SettingsPageProvider {
     }
 }
 
+/** What a rule added from elsewhere starts as: blocking or allowing, its kind and its value. */
+internal data class RulePrefill(val allow: Boolean, val kind: RuleKind, val value: String)
+
 /**
  * Adds rules, one per line, the way Settings' APN editor adds an APN. Lines the service rejects
  * stay on the page to fix.
  */
 @Composable
-private fun AddRulesPage(userId: Int, packageName: String?, kind: RuleKind?) {
+internal fun AddRulesPage(
+    userId: Int,
+    packageName: String?,
+    kind: RuleKind?,
+    prefill: RulePrefill? = null,
+) {
     val scope = rememberCoroutineScope()
     val navController = LocalNavController.current
-    var chosenKind by rememberSaveable { mutableStateOf(RuleKind.DOMAIN) }
-    var allow by rememberSaveable { mutableStateOf(false) }
+    var chosenKind by rememberSaveable { mutableStateOf(prefill?.kind ?: RuleKind.DOMAIN) }
+    var allow by rememberSaveable { mutableStateOf(prefill?.allow ?: false) }
     var subdomains by rememberSaveable { mutableStateOf(true) }
     var protocol by rememberSaveable { mutableIntStateOf(0) }
     var port by rememberSaveable { mutableStateOf("") }
     var portInvalid by rememberSaveable { mutableStateOf(false) }
-    var text by rememberSaveable { mutableStateOf("") }
+    var text by rememberSaveable { mutableStateOf(prefill?.value.orEmpty()) }
     var invalid by rememberSaveable { mutableStateOf(false) }
     var limit by rememberSaveable { mutableIntStateOf(ALL_NETWORKS) }
     var networks by rememberSaveable { mutableStateOf(listOf<String>()) }

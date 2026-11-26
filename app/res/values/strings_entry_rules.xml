@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- An activity entry's page: the heading over the rows that add a rule for where it went -->
+    <string name="entry_rules">Add a rule</string>
+    <string name="block_for">Block for <xliff:g id="name" example="Chrome">%1$s</xliff:g></string>
+    <string name="allow_for">Allow for <xliff:g id="name" example="Chrome">%1$s</xliff:g></string>
+    <string name="block_for_all_apps">Block for all apps</string>
+    <string name="allow_for_all_apps">Allow for all apps</string>
+</resources>

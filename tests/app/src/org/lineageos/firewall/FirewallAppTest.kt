@@ -800,21 +800,42 @@ class FirewallAppTest {
             find(text("no_activity"))
         }
 
+    /** Turns the log on and sends to an address this app's rule blocks, for a blocked entry. */
+    private fun sendBlocked() {
+        find(text("record_activity")).click()
+        waitUntil { firewall.isActivityLogOn(userId) }
+        firewall.addRules(arrayOf(rule(testPackage, IFirewall.RULE_ADDRESS, BLOCKED_TO)))
+        DatagramSocket().use {
+            // Refused at once, which is what the log records.
+            runCatching {
+                it.send(DatagramPacket(byteArrayOf(1), 1, InetAddress.getByName(BLOCKED_TO), 9))
+            }
+        }
+    }
+
     @Test
     fun aBlockedEntrySaysWhichRuleBlockedIt() =
         onPage("Activity/$userId") {
-            find(text("record_activity")).click()
-            waitUntil { firewall.isActivityLogOn(userId) }
-            firewall.addRules(arrayOf(rule(testPackage, IFirewall.RULE_ADDRESS, BLOCKED_TO)))
-            DatagramSocket().use {
-                // Refused at once, which is what the log records.
-                runCatching {
-                    it.send(DatagramPacket(byteArrayOf(1), 1, InetAddress.getByName(BLOCKED_TO), 9))
-                }
-            }
+            sendBlocked()
             find(BLOCKED_TO).click()
             find(text("why_address_rule", BLOCKED_TO))
             find(text("why_rules_for", context.applicationInfo.loadLabel(context.packageManager)))
+        }
+
+    @Test
+    fun aBlockedEntryAddsAnAllowRuleForItsAppFromItsPage() =
+        onPage("Activity/$userId") {
+            sendBlocked()
+            find(BLOCKED_TO).click()
+            val label = context.applicationInfo.loadLabel(context.packageManager)
+            find(text("allow_for", label)).click()
+            assertEquals(BLOCKED_TO, valuesField("kind_addresses").text)
+            find(text("add")).click()
+            waitUntil {
+                firewall.getRules(userId, testPackage).any {
+                    it.allow && it.kind == IFirewall.RULE_ADDRESS && it.value.startsWith(BLOCKED_TO)
+                }
+            }
         }
 
     @Test

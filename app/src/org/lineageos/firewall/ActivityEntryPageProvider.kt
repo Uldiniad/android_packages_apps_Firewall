@@ -74,6 +74,7 @@ private fun ActivityEntryPage(userId: Int, key: String) {
     RegularScaffold(title = entry.name ?: entry.address ?: "") {
         ActivityRow(userId, entry, app, device, opensEntry = false)
         if (!entry.allowed) Why(userId, entry, app, device)
+        EntryRules(userId, entry, app, device)
     }
 }
 

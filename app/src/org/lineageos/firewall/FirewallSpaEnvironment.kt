@@ -31,6 +31,7 @@ class FirewallSpaEnvironment(context: Context) : SpaEnvironment(context) {
                     GroupAppsPageProvider,
                     ActivityPageProvider,
                     ActivityEntryPageProvider,
+                    AddEntryRulePageProvider,
                     HotspotPageProvider,
                     HotspotDevicePageProvider,
                 ),
